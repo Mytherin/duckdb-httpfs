@@ -70,7 +70,7 @@ static void LoadInternal(DatabaseInstance &instance) {
 	CreateBearerTokenFunctions::Register(instance);
 
 	// set pointer to OpenSSL encryption state
-	config.encryption_util = make_shared_ptr<AESGCMStateSSLFactory>();
+	config.encryption_util = make_shared_ptr<AESStateSSLFactory>();
 }
 void HttpfsExtension::Load(DuckDB &db) {
 	LoadInternal(*db.instance);

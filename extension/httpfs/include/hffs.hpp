@@ -62,7 +62,7 @@ public:
 	}
 	~HFFileHandle() override;
 
-	unique_ptr<duckdb_httplib_openssl::Client> CreateClient(optional_ptr<ClientContext> client_context) override;
+	unique_ptr<HTTPClient> CreateClient(optional_ptr<ClientContext> client_context) override;
 
 protected:
 	ParsedHFUrl parsed_url;

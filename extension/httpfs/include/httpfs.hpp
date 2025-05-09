@@ -57,16 +57,24 @@ struct HTTPParams {
 	static HTTPParams ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info);
 };
 
+class HTTPClient {
+public:
+	virtual ~HTTPClient() = default;
+
+	virtual void SetLogger(HTTPLogger &logger) = 0;
+	virtual duckdb_httplib_openssl::Client &GetHTTPLibClient() = 0;
+};
+
 class HTTPClientCache {
 public:
 	//! Get a client from the client cache
-	unique_ptr<duckdb_httplib_openssl::Client> GetClient();
+	unique_ptr<HTTPClient> GetClient();
 	//! Store a client in the cache for reuse
-	void StoreClient(unique_ptr<duckdb_httplib_openssl::Client> client);
+	void StoreClient(unique_ptr<HTTPClient> client);
 
 protected:
 	//! The cached clients
-	vector<unique_ptr<duckdb_httplib_openssl::Client>> clients;
+	vector<unique_ptr<HTTPClient>> clients;
 	//! Lock to fetch a client
 	mutex lock;
 };
@@ -116,9 +124,9 @@ public:
 	void AddHeaders(HTTPHeaders &map);
 
 	// Get a Client to run requests over
-	unique_ptr<duckdb_httplib_openssl::Client> GetClient(optional_ptr<ClientContext> client_context);
+	unique_ptr<HTTPClient> GetClient(optional_ptr<ClientContext> client_context);
 	// Return the client for re-use
-	void StoreClient(unique_ptr<duckdb_httplib_openssl::Client> client);
+	void StoreClient(unique_ptr<HTTPClient> client);
 
 public:
 	void Close() override {
@@ -126,7 +134,7 @@ public:
 
 protected:
 	//! Create a new Client
-	virtual unique_ptr<duckdb_httplib_openssl::Client> CreateClient(optional_ptr<ClientContext> client_context);
+	virtual unique_ptr<HTTPClient> CreateClient(optional_ptr<ClientContext> client_context);
 	//! Perform a HEAD request to get the file info (if not yet loaded)
 	void LoadFileInfo();
 
@@ -137,7 +145,7 @@ private:
 
 class HTTPFileSystem : public FileSystem {
 public:
-	static duckdb::unique_ptr<duckdb_httplib_openssl::Client>
+	static duckdb::unique_ptr<HTTPClient>
 	GetClient(const HTTPParams &http_params, const char *proto_host_port, optional_ptr<HTTPFileHandle> hfs);
 	static void ParseUrl(string &url, string &path_out, string &proto_host_port_out);
 	static bool TryParseLastModifiedTime(const string &timestamp, time_t &result);

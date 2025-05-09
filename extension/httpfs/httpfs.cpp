@@ -91,7 +91,7 @@ HTTPParams HTTPParams::ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<Fi
 	return result;
 }
 
-unique_ptr<duckdb_httplib_openssl::Client> HTTPClientCache::GetClient() {
+unique_ptr<HTTPClient> HTTPClientCache::GetClient() {
 	lock_guard<mutex> lck(lock);
 	if (clients.size() == 0) {
 		return nullptr;
@@ -102,7 +102,7 @@ unique_ptr<duckdb_httplib_openssl::Client> HTTPClientCache::GetClient() {
 	return client;
 }
 
-void HTTPClientCache::StoreClient(unique_ptr<duckdb_httplib_openssl::Client> client) {
+void HTTPClientCache::StoreClient(unique_ptr<HTTPClient> client) {
 	lock_guard<mutex> lck(lock);
 	clients.push_back(std::move(client));
 }
@@ -229,42 +229,62 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
 			return true;
 		};
 		req.body.assign(buffer_in, buffer_in_len);
-		return TransformResponse(client->send(req));
+		auto &httplib_client = client->GetHTTPLibClient();
+		return TransformResponse(httplib_client.send(req));
 	});
 
 	return RunRequestWithRetry(request, url, "POST", hfh.http_params);
 }
 
-unique_ptr<duckdb_httplib_openssl::Client> HTTPFileSystem::GetClient(const HTTPParams &http_params,
-                                                                     const char *proto_host_port,
-                                                                     optional_ptr<HTTPFileHandle> hfh) {
-	auto client = make_uniq<duckdb_httplib_openssl::Client>(proto_host_port);
-	client->set_follow_location(true);
-	client->set_keep_alive(http_params.keep_alive);
-	if (!http_params.ca_cert_file.empty()) {
-		client->set_ca_cert_path(http_params.ca_cert_file.c_str());
-	}
-	client->enable_server_certificate_verification(http_params.enable_server_cert_verification);
-	client->set_write_timeout(http_params.timeout, http_params.timeout_usec);
-	client->set_read_timeout(http_params.timeout, http_params.timeout_usec);
-	client->set_connection_timeout(http_params.timeout, http_params.timeout_usec);
-	client->set_decompress(false);
-	if (hfh && hfh->http_logger) {
-		client->set_logger(
-		    hfh->http_logger->GetLogger<duckdb_httplib_openssl::Request, duckdb_httplib_openssl::Response>());
-	}
-	if (!http_params.bearer_token.empty()) {
-		client->set_bearer_token_auth(http_params.bearer_token.c_str());
-	}
+class HTTPLibClient : public HTTPClient {
+public:
+	HTTPLibClient(const HTTPParams &http_params, const char *proto_host_port, optional_ptr<HTTPLogger> logger) {
+		client = make_uniq<duckdb_httplib_openssl::Client>(proto_host_port);
+		client->set_follow_location(true);
+		client->set_keep_alive(http_params.keep_alive);
+		if (!http_params.ca_cert_file.empty()) {
+			client->set_ca_cert_path(http_params.ca_cert_file.c_str());
+		}
+		client->enable_server_certificate_verification(http_params.enable_server_cert_verification);
+		client->set_write_timeout(http_params.timeout, http_params.timeout_usec);
+		client->set_read_timeout(http_params.timeout, http_params.timeout_usec);
+		client->set_connection_timeout(http_params.timeout, http_params.timeout_usec);
+		client->set_decompress(false);
+		if (logger) {
+			SetLogger(*logger);
+		}
+		if (!http_params.bearer_token.empty()) {
+			client->set_bearer_token_auth(http_params.bearer_token.c_str());
+		}
 
-	if (!http_params.http_proxy.empty()) {
-		client->set_proxy(http_params.http_proxy, http_params.http_proxy_port);
+		if (!http_params.http_proxy.empty()) {
+			client->set_proxy(http_params.http_proxy, http_params.http_proxy_port);
 
-		if (!http_params.http_proxy_username.empty()) {
-			client->set_proxy_basic_auth(http_params.http_proxy_username, http_params.http_proxy_password);
+			if (!http_params.http_proxy_username.empty()) {
+				client->set_proxy_basic_auth(http_params.http_proxy_username, http_params.http_proxy_password);
+			}
 		}
 	}
 
+	void SetLogger(HTTPLogger &logger) override {
+		client->set_logger(
+			logger.GetLogger<duckdb_httplib_openssl::Request, duckdb_httplib_openssl::Response>());
+	}
+	duckdb_httplib_openssl::Client &GetHTTPLibClient() override {
+		return *client;
+	}
+
+	unique_ptr<duckdb_httplib_openssl::Client> client;
+};
+
+unique_ptr<HTTPClient> HTTPFileSystem::GetClient(const HTTPParams &http_params,
+                                                                     const char *proto_host_port,
+                                                                     optional_ptr<HTTPFileHandle> hfh) {
+	optional_ptr<HTTPLogger> logger;
+	if (hfh) {
+		logger = hfh->http_logger.get();
+	}
+	auto client = make_uniq<HTTPLibClient>(http_params, proto_host_port, logger);
 	return client;
 }
 
@@ -281,7 +301,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string u
 			hfh.state->put_count++;
 			hfh.state->total_bytes_sent += buffer_in_len;
 		}
-		return TransformResponse(client->Put(path.c_str(), *headers, buffer_in, buffer_in_len, "application/octet-stream"));
+		auto &httplib_client = client->GetHTTPLibClient();
+		return TransformResponse(httplib_client.Put(path.c_str(), *headers, buffer_in, buffer_in_len, "application/octet-stream"));
 	});
 
 	return RunRequestWithRetry(request, url, "PUT", hfh.http_params);
@@ -298,7 +319,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 		if (hfh.state) {
 			hfh.state->head_count++;
 		}
-		return TransformResponse(http_client->Head(path.c_str(), *headers));
+		auto &httplib_client = http_client->GetHTTPLibClient();
+		return TransformResponse(httplib_client.Head(path.c_str(), *headers));
 	});
 
 	// Refresh the client on retries
@@ -320,7 +342,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 		if (hfh.state) {
 			hfh.state->delete_count++;
 		}
-		return TransformResponse(http_client->Delete(path.c_str(), *headers));
+		auto &httplib_client = http_client->GetHTTPLibClient();
+		return TransformResponse(httplib_client.Delete(path.c_str(), *headers));
 	});
 
 	// Refresh the client on retries
@@ -345,7 +368,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		D_ASSERT(hfh.state);
 		hfh.state->get_count++;
-		return TransformResponse(http_client->Get(
+		auto &httplib_client = http_client->GetHTTPLibClient();
+		return TransformResponse(httplib_client.Get(
 		    path.c_str(), *headers,
 		    [&](const duckdb_httplib_openssl::Response &response) {
 			    if (response.status >= 400) {
@@ -411,7 +435,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 		if (hfh.state) {
 			hfh.state->get_count++;
 		}
-		return TransformResponse(http_client->Get(
+		auto &httplib_client = http_client->GetHTTPLibClient();
+		return TransformResponse(httplib_client.Get(
 		    path.c_str(), *headers,
 		    [&](const duckdb_httplib_openssl::Response &response) {
 			    if (response.status >= 400) {
@@ -866,7 +891,7 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 	}
 }
 
-unique_ptr<duckdb_httplib_openssl::Client> HTTPFileHandle::GetClient(optional_ptr<ClientContext> context) {
+unique_ptr<HTTPClient> HTTPFileHandle::GetClient(optional_ptr<ClientContext> context) {
 	// Try to fetch a cached client
 	auto cached_client = client_cache.GetClient();
 	if (cached_client) {
@@ -877,20 +902,19 @@ unique_ptr<duckdb_httplib_openssl::Client> HTTPFileHandle::GetClient(optional_pt
 	return CreateClient(context);
 }
 
-unique_ptr<duckdb_httplib_openssl::Client> HTTPFileHandle::CreateClient(optional_ptr<ClientContext> context) {
+unique_ptr<HTTPClient> HTTPFileHandle::CreateClient(optional_ptr<ClientContext> context) {
 	// Create a new client
 	string path_out, proto_host_port;
 	HTTPFileSystem::ParseUrl(path, path_out, proto_host_port);
 	auto http_client = HTTPFileSystem::GetClient(this->http_params, proto_host_port.c_str(), this);
 	if (context && ClientConfig::GetConfig(*context).enable_http_logging) {
 		http_logger = context->client_data->http_logger.get();
-		http_client->set_logger(
-		    http_logger->GetLogger<duckdb_httplib_openssl::Request, duckdb_httplib_openssl::Response>());
+		http_client->SetLogger(*http_logger);
 	}
 	return http_client;
 }
 
-void HTTPFileHandle::StoreClient(unique_ptr<duckdb_httplib_openssl::Client> client) {
+void HTTPFileHandle::StoreClient(unique_ptr<HTTPClient> client) {
 	client_cache.StoreClient(std::move(client));
 }
 

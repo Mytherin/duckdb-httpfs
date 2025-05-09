@@ -279,7 +279,7 @@ void S3FileHandle::Close() {
 	}
 }
 
-unique_ptr<duckdb_httplib_openssl::Client> S3FileHandle::CreateClient(optional_ptr<ClientContext> client_context) {
+unique_ptr<HTTPClient> S3FileHandle::CreateClient(optional_ptr<ClientContext> client_context) {
 	auto parsed_url = S3FileSystem::S3UrlParse(path, this->auth_params);
 
 	string proto_host_port = parsed_url.http_proto + parsed_url.host;
@@ -1103,7 +1103,8 @@ string AWSListObjectV2::Request(string &path, HTTPParams &http_params, S3AuthPar
 	auto client = S3FileSystem::GetClient(http_params, (parsed_url.http_proto + parsed_url.host).c_str(),
 	                                      nullptr); // Get requests use fresh connection
 	std::stringstream response;
-	auto res = client->Get(
+	auto &httplib_client = client->GetHTTPLibClient();
+	auto res = httplib_client.Get(
 	    listobjectv2_url.c_str(), *headers,
 	    [&](const duckdb_httplib_openssl::Response &response) {
 		    if (response.status >= 400) {

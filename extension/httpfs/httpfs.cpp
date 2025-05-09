@@ -783,7 +783,7 @@ void HTTPFileHandle::LoadFileInfo() {
 					throw IOException("Unable to connect to URL \"%s\": %d (%s).", path, static_cast<int>(res->status), res->GetError());
 				}
 				string content_range;
-				if (!range_res->headers.HasHeader("Content-Range")) {
+				if (range_res->headers.HasHeader("Content-Range")) {
 					content_range = range_res->headers.GetHeaderValue("Content-Range");
 				}
 				auto range_find = content_range.find("/");

@@ -57,12 +57,36 @@ struct HTTPParams {
 	static HTTPParams ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info);
 };
 
+struct PutRequestInfo {
+	PutRequestInfo(const string &path, const HTTPHeaders &headers, const_data_ptr_t buffer_in, idx_t buffer_in_len, const string &content_type, optional_ptr<HTTPState> state) :
+		path(path), headers(headers), buffer_in(buffer_in), buffer_in_len(buffer_in_len), content_type(content_type), state(state) {}
+
+	const string &path;
+	const HTTPHeaders &headers;
+	const_data_ptr_t buffer_in;
+	idx_t buffer_in_len;
+	const string &content_type;
+	optional_ptr<HTTPState> state;
+};
+
+struct HeadRequestInfo {
+	HeadRequestInfo(const string &path, const HTTPHeaders &headers, optional_ptr<HTTPState> state) :
+		path(path), headers(headers), state(state) {}
+
+	const string &path;
+	const HTTPHeaders &headers;
+	optional_ptr<HTTPState> state;
+};
+
 class HTTPClient {
 public:
 	virtual ~HTTPClient() = default;
 
 	virtual void SetLogger(HTTPLogger &logger) = 0;
 	virtual duckdb_httplib_openssl::Client &GetHTTPLibClient() = 0;
+
+	virtual unique_ptr<HTTPResponse> Put(PutRequestInfo &info) = 0;
+	virtual unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) = 0;
 };
 
 class HTTPClientCache {

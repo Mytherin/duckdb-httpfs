@@ -282,6 +282,22 @@ public:
 	duckdb_httplib_openssl::Client &GetHTTPLibClient() override {
 		return *client;
 	}
+	unique_ptr<HTTPResponse> Put(PutRequestInfo &info) override {
+        if (info.state) {
+            info.state->put_count++;
+            info.state->total_bytes_sent += info.buffer_in_len;
+        }
+        auto headers = TransformHeaders(info.headers);
+        return HTTPFileSystem::TransformResponse(client->Put(info.path.c_str(), *headers, const_char_ptr_cast(info.buffer_in), info.buffer_in_len, info.content_type));
+	}
+
+	unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) override {
+        if (info.state) {
+            info.state->head_count++;
+        }
+        auto headers = TransformHeaders(info.headers);
+        return HTTPFileSystem::TransformResponse(client->Head(info.path.c_str(), *headers));
+	}
 
 	unique_ptr<duckdb_httplib_openssl::Client> client;
 };
@@ -303,16 +319,12 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string u
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
 	InitializeHeaders(header_map, hfh.http_params);
-	auto headers = TransformHeaders(header_map);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		auto client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh);
-		if (hfh.state) {
-			hfh.state->put_count++;
-			hfh.state->total_bytes_sent += buffer_in_len;
-		}
-		auto &httplib_client = client->GetHTTPLibClient();
-		return TransformResponse(httplib_client.Put(path.c_str(), *headers, buffer_in, buffer_in_len, "application/octet-stream"));
+
+		PutRequestInfo put_request(path, header_map, (const_data_ptr_t) buffer_in, buffer_in_len, "application/octet-stream", hfh.state.get());
+		return client->Put(put_request);
 	});
 
 	return RunRequestWithRetry(request, url, "PUT", hfh.http_params);
@@ -323,15 +335,11 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
 	InitializeHeaders(header_map, hfh.http_params);
-	auto headers = TransformHeaders(header_map);
 	auto http_client = hfh.GetClient(nullptr);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		if (hfh.state) {
-			hfh.state->head_count++;
-		}
-		auto &httplib_client = http_client->GetHTTPLibClient();
-		return TransformResponse(httplib_client.Head(path.c_str(), *headers));
+		HeadRequestInfo head_request(path, header_map, hfh.state.get());
+		return http_client->Head(head_request);
 	});
 
 	// Refresh the client on retries

@@ -78,6 +78,15 @@ struct HeadRequestInfo {
 	optional_ptr<HTTPState> state;
 };
 
+struct DeleteRequestInfo {
+	DeleteRequestInfo(const string &path, const HTTPHeaders &headers, optional_ptr<HTTPState> state) :
+		path(path), headers(headers), state(state) {}
+
+	const string &path;
+	const HTTPHeaders &headers;
+	optional_ptr<HTTPState> state;
+};
+
 class HTTPClient {
 public:
 	virtual ~HTTPClient() = default;
@@ -87,6 +96,7 @@ public:
 
 	virtual unique_ptr<HTTPResponse> Put(PutRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) = 0;
+	virtual unique_ptr<HTTPResponse> Delete(DeleteRequestInfo &info) = 0;
 };
 
 class HTTPClientCache {

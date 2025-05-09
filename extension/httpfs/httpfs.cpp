@@ -299,6 +299,14 @@ public:
         return HTTPFileSystem::TransformResponse(client->Head(info.path.c_str(), *headers));
 	}
 
+	unique_ptr<HTTPResponse> Delete(DeleteRequestInfo &info) override {
+        if (info.state) {
+            info.state->delete_count++;
+        }
+        auto headers = TransformHeaders(info.headers);
+        return HTTPFileSystem::TransformResponse(client->Delete(info.path.c_str(), *headers));
+	}
+
 	unique_ptr<duckdb_httplib_openssl::Client> client;
 };
 
@@ -355,15 +363,11 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
 	InitializeHeaders(header_map, hfh.http_params);
-	auto headers = TransformHeaders(header_map);
 	auto http_client = hfh.GetClient(nullptr);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		if (hfh.state) {
-			hfh.state->delete_count++;
-		}
-		auto &httplib_client = http_client->GetHTTPLibClient();
-		return TransformResponse(httplib_client.Delete(path.c_str(), *headers));
+		DeleteRequestInfo delete_request(path, header_map, hfh.state.get());
+		return http_client->Delete(delete_request);
 	});
 
 	// Refresh the client on retries

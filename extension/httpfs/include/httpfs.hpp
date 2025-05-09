@@ -57,6 +57,18 @@ struct HTTPParams {
 	static HTTPParams ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info);
 };
 
+struct GetRequestInfo {
+	GetRequestInfo(const string &path, const HTTPHeaders &headers,
+	std::function<bool(const HTTPResponse &response)> response_handler, std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler, optional_ptr<HTTPState> state) :
+		path(path), headers(headers), content_handler(content_handler), response_handler(response_handler), state(state) {}
+
+	const string &path;
+	const HTTPHeaders &headers;
+	std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler;
+	std::function<bool(const HTTPResponse &response)> response_handler;
+	optional_ptr<HTTPState> state;
+};
+
 struct PutRequestInfo {
 	PutRequestInfo(const string &path, const HTTPHeaders &headers, const_data_ptr_t buffer_in, idx_t buffer_in_len, const string &content_type, optional_ptr<HTTPState> state) :
 		path(path), headers(headers), buffer_in(buffer_in), buffer_in_len(buffer_in_len), content_type(content_type), state(state) {}
@@ -107,6 +119,7 @@ public:
 	virtual void SetLogger(HTTPLogger &logger) = 0;
 	virtual duckdb_httplib_openssl::Client &GetHTTPLibClient() = 0;
 
+	virtual unique_ptr<HTTPResponse> Get(GetRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Put(PutRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Delete(DeleteRequestInfo &info) = 0;
@@ -253,7 +266,7 @@ public:
 
 	optional_ptr<HTTPMetadataCache> GetGlobalCache();
 
-	static unique_ptr<HTTPResponse> TransformResponse(duckdb_httplib_openssl::Result &&res);
+	static unique_ptr<HTTPResponse> TransformResult(duckdb_httplib_openssl::Result &&res);
 	static duckdb::unique_ptr<duckdb_httplib_openssl::Headers> TransformHeaders(const HTTPHeaders &header_map);
 
 protected:

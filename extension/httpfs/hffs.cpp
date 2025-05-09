@@ -67,7 +67,7 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_p
 		}
 
 		auto &httplib_client = client->GetHTTPLibClient();
-		return HTTPFileSystem::TransformResponse(httplib_client.Get(
+		return HTTPFileSystem::TransformResult(httplib_client.Get(
 		    next_page_url.c_str(), *headers,
 		    [&](const duckdb_httplib_openssl::Response &response) {
 			    if (response.status >= 400) {

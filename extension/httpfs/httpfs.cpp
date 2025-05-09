@@ -467,36 +467,30 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
 	InitializeHeaders(header_map, hfh.http_params);
-	auto headers = TransformHeaders(header_map);
 
 	// send the Range header to read only subset of file
 	string range_expr = "bytes=" + to_string(file_offset) + "-" + to_string(file_offset + buffer_out_len - 1);
-	headers->insert(pair<string, string>("Range", range_expr));
+	header_map.Insert("Range", range_expr);
 
 	auto http_client = hfh.GetClient(nullptr);
 
 	idx_t out_offset = 0;
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		if (hfh.state) {
-			hfh.state->get_count++;
-		}
-		auto &httplib_client = http_client->GetHTTPLibClient();
-		return TransformResult(httplib_client.Get(
-		    path.c_str(), *headers,
-		    [&](const duckdb_httplib_openssl::Response &response) {
-			    if (response.status >= 400) {
-				    string error = "HTTP GET error on '" + url + "' (HTTP " + to_string(response.status) + ")";
-				    if (response.status == 416) {
+		GetRequestInfo get_request(path, header_map,
+		    [&](const HTTPResponse &response) {
+			    if (static_cast<int>(response.status) >= 400) {
+				    string error = "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + ")";
+				    if (response.status == HTTPStatusCode::RangeNotSatisfiable_416) {
 					    error += " This could mean the file was changed. Try disabling the duckdb http metadata cache "
 					             "if enabled, and confirm the server supports range requests.";
 				    }
 				    throw HTTPException(response, error);
 			    }
-			    if (response.status < 300) { // done redirecting
+			    if (static_cast<int>(response.status) < 300) { // done redirecting
 				    out_offset = 0;
-				    if (response.has_header("Content-Length")) {
-					    auto content_length = stoll(response.get_header_value("Content-Length", 0));
+				    if (response.HasHeader("Content-Length")) {
+					    auto content_length = stoll(response.GetHeaderValue("Content-Length"));
 					    if ((idx_t)content_length != buffer_out_len) {
 						    throw IOException("HTTP GET error: Content-Length from server mismatches requested "
 						                      "range, server may not support range requests.");
@@ -505,7 +499,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 			    }
 			    return true;
 		    },
-		    [&](const char *data, size_t data_length) {
+		    [&](const_data_ptr_t data, idx_t data_length) {
 			    if (hfh.state) {
 				    hfh.state->total_bytes_received += data_length;
 			    }
@@ -523,7 +517,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 				    out_offset += data_length;
 			    }
 			    return true;
-		    }));
+		    }, hfh.state.get());
+		return http_client->Get(get_request);
 	});
 
 	std::function<void(void)> on_retry(

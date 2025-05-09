@@ -55,37 +55,30 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_p
                                             optional_ptr<HTTPState> state) {
 	HTTPHeaders header_map;
 	InitializeHeaders(header_map, http_params);
-	auto headers = TransformHeaders(header_map);
 	string link_header_result;
 
 	auto client = HTTPFileSystem::GetClient(http_params, url.endpoint.c_str(), nullptr);
 	std::stringstream response;
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		if (state) {
-			state->get_count++;
-		}
-
-		auto &httplib_client = client->GetHTTPLibClient();
-		return HTTPFileSystem::TransformResult(httplib_client.Get(
-		    next_page_url.c_str(), *headers,
-		    [&](const duckdb_httplib_openssl::Response &response) {
-			    if (response.status >= 400) {
+		GetRequestInfo get_request(next_page_url, header_map,
+		    [&](const HTTPResponse &response) {
+			    if (static_cast<int>(response.status) >= 400) {
 				    throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", next_page_url, response.status);
 			    }
-			    auto link_res = response.headers.find("Link");
-			    if (link_res != response.headers.end()) {
-				    link_header_result = link_res->second;
+			    if (response.HasHeader("Link")) {
+				    link_header_result = response.GetHeaderValue("Link");
 			    }
 			    return true;
 		    },
-		    [&](const char *data, size_t data_length) {
+		    [&](const_data_ptr_t data, idx_t data_length) {
 			    if (state) {
 				    state->total_bytes_received += data_length;
 			    }
-			    response << string(data, data_length);
+			    response << string(const_char_ptr_cast(data), data_length);
 			    return true;
-		    }));
+		    }, state);
+		return client->Get(get_request);
 	});
 
 	auto res = RunRequestWithRetry(request, next_page_url, "GET", http_params, nullptr);

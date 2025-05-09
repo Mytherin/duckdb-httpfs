@@ -203,45 +203,16 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
 	InitializeHeaders(header_map, hfh.http_params);
-	auto headers = TransformHeaders(header_map);
-	idx_t out_offset = 0;
-
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		auto client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh);
 
-		if (hfh.state) {
-			hfh.state->post_count++;
-			hfh.state->total_bytes_sent += buffer_in_len;
-		}
+		PostRequestInfo post_request(path, header_map, const_data_ptr_cast(buffer_in), buffer_in_len, hfh.state.get());
+		auto result = client->Post(post_request);
 
-		// We use a custom Request method here, because there is no Post call with a contentreceiver in httplib
-		duckdb_httplib_openssl::Request req;
-		req.method = "POST";
-		req.path = path;
-		req.headers = *headers;
-		req.headers.emplace("Content-Type", "application/octet-stream");
-		req.content_receiver = [&](const char *data, size_t data_length, uint64_t /*offset*/,
-		                           uint64_t /*total_length*/) {
-			if (hfh.state) {
-				hfh.state->total_bytes_received += data_length;
-			}
-			if (out_offset + data_length > buffer_out_len) {
-				// Buffer too small, increase its size by at least 2x to fit the new value
-				auto new_size = MaxValue<idx_t>(out_offset + data_length, buffer_out_len * 2);
-				auto tmp = duckdb::unique_ptr<char[]> {new char[new_size]};
-				memcpy(tmp.get(), buffer_out.get(), buffer_out_len);
-				buffer_out = std::move(tmp);
-				buffer_out_len = new_size;
-			}
-			memcpy(buffer_out.get() + out_offset, data, data_length);
-			out_offset += data_length;
-			return true;
-		};
-		req.body.assign(buffer_in, buffer_in_len);
-		auto &httplib_client = client->GetHTTPLibClient();
-		return TransformResponse(httplib_client.send(req));
+		buffer_out = std::move(post_request.buffer_out);
+		buffer_out_len = post_request.buffer_out_len;
+		return result;
 	});
-
 	return RunRequestWithRetry(request, url, "POST", hfh.http_params);
 }
 
@@ -305,6 +276,39 @@ public:
         }
         auto headers = TransformHeaders(info.headers);
         return HTTPFileSystem::TransformResponse(client->Delete(info.path.c_str(), *headers));
+	}
+
+	unique_ptr<HTTPResponse> Post(PostRequestInfo &info) override {
+        if (info.state) {
+            info.state->post_count++;
+            info.state->total_bytes_sent += info.buffer_in_len;
+        }
+		idx_t out_offset = 0;
+        // We use a custom Request method here, because there is no Post call with a contentreceiver in httplib
+        duckdb_httplib_openssl::Request req;
+        req.method = "POST";
+        req.path = info.path;
+        req.headers = *TransformHeaders(info.headers);
+        req.headers.emplace("Content-Type", "application/octet-stream");
+        req.content_receiver = [&](const char *data, size_t data_length, uint64_t /*offset*/,
+                                   uint64_t /*total_length*/) {
+            if (info.state) {
+                info.state->total_bytes_received += data_length;
+            }
+            if (out_offset + data_length > info.buffer_out_len) {
+                // Buffer too small, increase its size by at least 2x to fit the new value
+                auto new_size = MaxValue<idx_t>(out_offset + data_length, info.buffer_out_len * 2);
+                auto tmp = duckdb::unique_ptr<char[]> {new char[new_size]};
+                memcpy(tmp.get(), info.buffer_out.get(), info.buffer_out_len);
+                info.buffer_out = std::move(tmp);
+                info.buffer_out_len = new_size;
+            }
+            memcpy(info.buffer_out.get() + out_offset, data, data_length);
+            out_offset += data_length;
+            return true;
+        };
+        req.body.assign(const_char_ptr_cast(info.buffer_in), info.buffer_in_len);
+        return HTTPFileSystem::TransformResponse(client->send(req));
 	}
 
 	unique_ptr<duckdb_httplib_openssl::Client> client;

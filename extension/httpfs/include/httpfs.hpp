@@ -87,6 +87,19 @@ struct DeleteRequestInfo {
 	optional_ptr<HTTPState> state;
 };
 
+struct PostRequestInfo {
+	PostRequestInfo(const string &path, const HTTPHeaders &headers, const_data_ptr_t buffer_in, idx_t buffer_in_len, optional_ptr<HTTPState> state) :
+		path(path), headers(headers), buffer_in(buffer_in), buffer_in_len(buffer_in_len), state(state) {}
+
+	const string &path;
+	const HTTPHeaders &headers;
+	const_data_ptr_t buffer_in;
+	idx_t buffer_in_len;
+	optional_ptr<HTTPState> state;
+	duckdb::unique_ptr<char[]> buffer_out;
+	idx_t buffer_out_len = 0;
+};
+
 class HTTPClient {
 public:
 	virtual ~HTTPClient() = default;
@@ -97,6 +110,7 @@ public:
 	virtual unique_ptr<HTTPResponse> Put(PutRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Delete(DeleteRequestInfo &info) = 0;
+	virtual unique_ptr<HTTPResponse> Post(PostRequestInfo &info) = 0;
 };
 
 class HTTPClientCache {

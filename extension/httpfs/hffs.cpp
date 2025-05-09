@@ -54,7 +54,8 @@ unique_ptr<HTTPClient> HFFileHandle::CreateClient(optional_ptr<ClientContext> cl
 string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_params, string &next_page_url,
                                             optional_ptr<HTTPState> state) {
 	HTTPHeaders header_map;
-	auto headers = HTTPFileSystem::InitializeHeaders(header_map, http_params);
+	InitializeHeaders(header_map, http_params);
+	auto headers = TransformHeaders(header_map);
 	string link_header_result;
 
 	auto client = HTTPFileSystem::GetClient(http_params, url.endpoint.c_str(), nullptr);

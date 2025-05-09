@@ -24,17 +24,25 @@
 
 namespace duckdb {
 
-duckdb::unique_ptr<duckdb_httplib_openssl::Headers> HTTPFileSystem::InitializeHeaders(HTTPHeaders &header_map,
-                                                                                      const HTTPParams &http_params) {
+void HTTPFileSystem::InitializeHeaders(HTTPHeaders &header_map, const HTTPParams &http_params) {
+	for (auto &entry : http_params.extra_headers) {
+		header_map.Insert(entry.first, entry.second);
+	}
+}
+
+duckdb::unique_ptr<duckdb_httplib_openssl::Headers> TransformHeaders(const HTTPHeaders &header_map) {
+	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
+	for(auto &entry : header_map) {
+		headers->insert(entry);
+	}
+	return headers;
+}
+
+duckdb::unique_ptr<duckdb_httplib_openssl::Headers> HTTPFileSystem::TransformHeaders(const HTTPHeaders &header_map) {
 	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
 	for (auto &entry : header_map) {
 		headers->insert(entry);
 	}
-
-	for (auto &entry : http_params.extra_headers) {
-		headers->insert(entry);
-	}
-
 	return headers;
 }
 
@@ -194,7 +202,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	auto headers = InitializeHeaders(header_map, hfh.http_params);
+	InitializeHeaders(header_map, hfh.http_params);
+	auto headers = TransformHeaders(header_map);
 	idx_t out_offset = 0;
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
@@ -293,7 +302,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string u
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	auto headers = InitializeHeaders(header_map, hfh.http_params);
+	InitializeHeaders(header_map, hfh.http_params);
+	auto headers = TransformHeaders(header_map);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		auto client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh);
@@ -312,7 +322,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	auto headers = InitializeHeaders(header_map, hfh.http_params);
+	InitializeHeaders(header_map, hfh.http_params);
+	auto headers = TransformHeaders(header_map);
 	auto http_client = hfh.GetClient(nullptr);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
@@ -335,7 +346,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	auto headers = InitializeHeaders(header_map, hfh.http_params);
+	InitializeHeaders(header_map, hfh.http_params);
+	auto headers = TransformHeaders(header_map);
 	auto http_client = hfh.GetClient(nullptr);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
@@ -359,7 +371,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	auto headers = InitializeHeaders(header_map, hfh.http_params);
+	InitializeHeaders(header_map, hfh.http_params);
+	auto headers = TransformHeaders(header_map);
 
 	D_ASSERT(hfh.cached_file_handle);
 
@@ -421,7 +434,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	auto headers = InitializeHeaders(header_map, hfh.http_params);
+	InitializeHeaders(header_map, hfh.http_params);
+	auto headers = TransformHeaders(header_map);
 
 	// send the Range header to read only subset of file
 	string range_expr = "bytes=" + to_string(file_offset) + "-" + to_string(file_offset + buffer_out_len - 1);

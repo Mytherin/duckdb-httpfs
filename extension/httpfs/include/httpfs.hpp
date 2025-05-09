@@ -149,8 +149,7 @@ public:
 	GetClient(const HTTPParams &http_params, const char *proto_host_port, optional_ptr<HTTPFileHandle> hfs);
 	static void ParseUrl(string &url, string &path_out, string &proto_host_port_out);
 	static bool TryParseLastModifiedTime(const string &timestamp, time_t &result);
-	static duckdb::unique_ptr<duckdb_httplib_openssl::Headers> InitializeHeaders(HTTPHeaders &header_map,
-	                                                                             const HTTPParams &http_params);
+	static void InitializeHeaders(HTTPHeaders &header_map, const HTTPParams &http_params);
 
 	vector<OpenFileInfo> Glob(const string &path, FileOpener *opener = nullptr) override {
 		return {path}; // FIXME
@@ -207,6 +206,7 @@ public:
 	optional_ptr<HTTPMetadataCache> GetGlobalCache();
 
 	static unique_ptr<HTTPResponse> TransformResponse(duckdb_httplib_openssl::Result &&res);
+	static duckdb::unique_ptr<duckdb_httplib_openssl::Headers> TransformHeaders(const HTTPHeaders &header_map);
 
 protected:
 	unique_ptr<FileHandle> OpenFileExtended(const OpenFileInfo &file, FileOpenFlags flags,

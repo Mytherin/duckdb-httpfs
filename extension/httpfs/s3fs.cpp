@@ -298,9 +298,9 @@ string S3FileSystem::InitializeMultipartUpload(S3FileHandle &file_handle) {
 	auto res = s3fs.PostRequest(file_handle, file_handle.path, {}, response_buffer, response_buffer_len, nullptr, 0,
 	                            query_param);
 
-	if (res->code != 200) {
-		throw HTTPException(*res, "Unable to connect to URL %s: %s (HTTP code %s)", res->http_url, res->error,
-							to_string(res->code));
+	if (res->status != HTTPStatusCode::OK_200) {
+		throw HTTPException(*res, "Unable to connect to URL %s: %s (HTTP code %d)", res->url, res->GetError(),
+							static_cast<int>(res->status));
 	}
 
 	string result(response_buffer.get(), response_buffer_len);
@@ -333,20 +333,19 @@ void S3FileSystem::UploadBuffer(S3FileHandle &file_handle, shared_ptr<S3WriteBuf
 
 	string query_param = "partNumber=" + to_string(write_buffer->part_no + 1) + "&" +
 	                     "uploadId=" + S3FileSystem::UrlEncode(file_handle.multipart_upload_id, true);
-	unique_ptr<ResponseWrapper> res;
+	unique_ptr<HTTPResponse> res;
 	case_insensitive_map_t<string>::iterator etag_lookup;
 
 	try {
 		res = s3fs.PutRequest(file_handle, file_handle.path, {}, (char *)write_buffer->Ptr(), write_buffer->idx,
 		                      query_param);
 
-		if (res->code != 200) {
-			throw HTTPException(*res, "Unable to connect to URL %s: %s (HTTP code %s)", res->http_url, res->error,
-			                    to_string(res->code));
+		if (res->status != HTTPStatusCode::OK_200) {
+			throw HTTPException(*res, "Unable to connect to URL %s: %s (HTTP code %d)", res->url, res->GetError(),
+			                    static_cast<int>(res->status));
 		}
 
-		etag_lookup = res->headers.find("ETag");
-		if (etag_lookup == res->headers.end()) {
+		if (!res->headers.HasHeader("ETag")) {
 			throw IOException("Unexpected response when uploading part to S3");
 		}
 
@@ -470,7 +469,7 @@ void S3FileSystem::FinalizeMultipartUpload(S3FileHandle &file_handle) {
 
 	auto open_tag_pos = result.find("<CompleteMultipartUploadResult", 0);
 	if (open_tag_pos == string::npos) {
-		throw HTTPException(*res, "Unexpected response during S3 multipart upload finalization: %d\n\n%s", res->code,
+		throw HTTPException(*res, "Unexpected response during S3 multipart upload finalization: %d\n\n%s", static_cast<int>(res->status),
 		                    result);
 	}
 }
@@ -652,7 +651,7 @@ string ParsedS3Url::GetHTTPUrl(S3AuthParams &auth_params, const string &http_que
 	return full_url;
 }
 
-unique_ptr<ResponseWrapper> S3FileSystem::PostRequest(FileHandle &handle, string url, HeaderMap header_map,
+unique_ptr<HTTPResponse> S3FileSystem::PostRequest(FileHandle &handle, string url, HeaderMap header_map,
                                                       duckdb::unique_ptr<char[]> &buffer_out, idx_t &buffer_out_len,
                                                       char *buffer_in, idx_t buffer_in_len, string http_params) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
@@ -665,7 +664,7 @@ unique_ptr<ResponseWrapper> S3FileSystem::PostRequest(FileHandle &handle, string
 	return HTTPFileSystem::PostRequest(handle, http_url, headers, buffer_out, buffer_out_len, buffer_in, buffer_in_len);
 }
 
-unique_ptr<ResponseWrapper> S3FileSystem::PutRequest(FileHandle &handle, string url, HeaderMap header_map,
+unique_ptr<HTTPResponse> S3FileSystem::PutRequest(FileHandle &handle, string url, HeaderMap header_map,
                                                      char *buffer_in, idx_t buffer_in_len, string http_params) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(url, auth_params);
@@ -678,7 +677,7 @@ unique_ptr<ResponseWrapper> S3FileSystem::PutRequest(FileHandle &handle, string 
 	return HTTPFileSystem::PutRequest(handle, http_url, headers, buffer_in, buffer_in_len);
 }
 
-unique_ptr<ResponseWrapper> S3FileSystem::HeadRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> S3FileSystem::HeadRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
 	string http_url = parsed_s3_url.GetHTTPUrl(auth_params);
@@ -687,7 +686,7 @@ unique_ptr<ResponseWrapper> S3FileSystem::HeadRequest(FileHandle &handle, string
 	return HTTPFileSystem::HeadRequest(handle, http_url, headers);
 }
 
-unique_ptr<ResponseWrapper> S3FileSystem::GetRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> S3FileSystem::GetRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
 	string http_url = parsed_s3_url.GetHTTPUrl(auth_params);
@@ -696,7 +695,7 @@ unique_ptr<ResponseWrapper> S3FileSystem::GetRequest(FileHandle &handle, string 
 	return HTTPFileSystem::GetRequest(handle, http_url, headers);
 }
 
-unique_ptr<ResponseWrapper> S3FileSystem::GetRangeRequest(FileHandle &handle, string s3_url, HeaderMap header_map,
+unique_ptr<HTTPResponse> S3FileSystem::GetRangeRequest(FileHandle &handle, string s3_url, HeaderMap header_map,
                                                           idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
@@ -706,7 +705,7 @@ unique_ptr<ResponseWrapper> S3FileSystem::GetRangeRequest(FileHandle &handle, st
 	return HTTPFileSystem::GetRangeRequest(handle, http_url, headers, file_offset, buffer_out, buffer_out_len);
 }
 
-unique_ptr<ResponseWrapper> S3FileSystem::DeleteRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> S3FileSystem::DeleteRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
 	string http_url = parsed_s3_url.GetHTTPUrl(auth_params);
@@ -883,8 +882,8 @@ void S3FileSystem::RemoveFile(const string &path, optional_ptr<FileOpener> opene
 
 	auto &s3fh = handle->Cast<S3FileHandle>();
 	auto res = DeleteRequest(*handle, s3fh.path, {});
-	if (res->code != 200 && res->code != 204) {
-		throw IOException("Could not remove file \"%s\": %s", {{"errno", to_string(res->code)}}, path, res->error);
+	if (res->status != HTTPStatusCode::OK_200 && res->status != HTTPStatusCode::NoContent_204) {
+		throw IOException("Could not remove file \"%s\": %s", {{"errno", to_string(static_cast<int>(res->status))}}, path, res->GetError());
 	}
 }
 

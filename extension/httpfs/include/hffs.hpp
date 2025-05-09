@@ -24,9 +24,9 @@ public:
 
 	vector<OpenFileInfo> Glob(const string &path, FileOpener *opener = nullptr) override;
 
-	duckdb::unique_ptr<ResponseWrapper> HeadRequest(FileHandle &handle, string hf_url, HeaderMap header_map) override;
-	duckdb::unique_ptr<ResponseWrapper> GetRequest(FileHandle &handle, string hf_url, HeaderMap header_map) override;
-	duckdb::unique_ptr<ResponseWrapper> GetRangeRequest(FileHandle &handle, string hf_url, HeaderMap header_map,
+	duckdb::unique_ptr<HTTPResponse> HeadRequest(FileHandle &handle, string hf_url, HeaderMap header_map) override;
+	duckdb::unique_ptr<HTTPResponse> GetRequest(FileHandle &handle, string hf_url, HeaderMap header_map) override;
+	duckdb::unique_ptr<HTTPResponse> GetRangeRequest(FileHandle &handle, string hf_url, HeaderMap header_map,
 	                                                    idx_t file_offset, char *buffer_out,
 	                                                    idx_t buffer_out_len) override;
 

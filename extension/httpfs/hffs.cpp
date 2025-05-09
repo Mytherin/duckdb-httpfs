@@ -60,12 +60,12 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_p
 	auto client = HTTPFileSystem::GetClient(http_params, url.endpoint.c_str(), nullptr);
 	std::stringstream response;
 
-	std::function<duckdb_httplib_openssl::Result(void)> request([&]() {
+	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		if (state) {
 			state->get_count++;
 		}
 
-		return client->Get(
+		return HTTPFileSystem::TransformResponse(client->Get(
 		    next_page_url.c_str(), *headers,
 		    [&](const duckdb_httplib_openssl::Response &response) {
 			    if (response.status >= 400) {
@@ -83,13 +83,13 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_p
 			    }
 			    response << string(data, data_length);
 			    return true;
-		    });
+		    }));
 	});
 
 	auto res = RunRequestWithRetry(request, next_page_url, "GET", http_params, nullptr);
 
-	if (res->code != 200) {
-		throw IOException(res->error + " error for HTTP GET to '" + next_page_url + "'");
+	if (res->status != HTTPStatusCode::OK_200) {
+		throw IOException(res->GetError() + " error for HTTP GET to '" + next_page_url + "'");
 	}
 
 	if (!link_header_result.empty()) {
@@ -267,20 +267,20 @@ vector<OpenFileInfo> HuggingFaceFileSystem::Glob(const string &path, FileOpener 
 	return result;
 }
 
-unique_ptr<ResponseWrapper> HuggingFaceFileSystem::HeadRequest(FileHandle &handle, string hf_url,
+unique_ptr<HTTPResponse> HuggingFaceFileSystem::HeadRequest(FileHandle &handle, string hf_url,
                                                                HeaderMap header_map) {
 	auto &hf_handle = handle.Cast<HFFileHandle>();
 	auto http_url = HuggingFaceFileSystem::GetFileUrl(hf_handle.parsed_url);
 	return HTTPFileSystem::HeadRequest(handle, http_url, header_map);
 }
 
-unique_ptr<ResponseWrapper> HuggingFaceFileSystem::GetRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> HuggingFaceFileSystem::GetRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
 	auto &hf_handle = handle.Cast<HFFileHandle>();
 	auto http_url = HuggingFaceFileSystem::GetFileUrl(hf_handle.parsed_url);
 	return HTTPFileSystem::GetRequest(handle, http_url, header_map);
 }
 
-unique_ptr<ResponseWrapper> HuggingFaceFileSystem::GetRangeRequest(FileHandle &handle, string s3_url,
+unique_ptr<HTTPResponse> HuggingFaceFileSystem::GetRangeRequest(FileHandle &handle, string s3_url,
                                                                    HeaderMap header_map, idx_t file_offset,
                                                                    char *buffer_out, idx_t buffer_out_len) {
 	auto &hf_handle = handle.Cast<HFFileHandle>();

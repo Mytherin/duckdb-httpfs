@@ -23,11 +23,11 @@
 
 namespace duckdb {
 
-static HeaderMap create_s3_header(string url, string query, string host, string service, string method,
+static HTTPHeaders create_s3_header(string url, string query, string host, string service, string method,
                                   const S3AuthParams &auth_params, string date_now = "", string datetime_now = "",
                                   string payload_hash = "", string content_type = "") {
 
-	HeaderMap res;
+	HTTPHeaders res;
 	res["Host"] = host;
 	// If access key is not set, we don't set the headers at all to allow accessing public files through s3 urls
 	if (auth_params.secret_access_key.empty() && auth_params.access_key_id.empty()) {
@@ -110,7 +110,7 @@ static HeaderMap create_s3_header(string url, string query, string host, string 
 	return res;
 }
 
-static duckdb::unique_ptr<duckdb_httplib_openssl::Headers> initialize_http_headers(HeaderMap &header_map) {
+static duckdb::unique_ptr<duckdb_httplib_openssl::Headers> initialize_http_headers(HTTPHeaders &header_map) {
 	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
 	for (auto &entry : header_map) {
 		headers->insert(entry);
@@ -651,7 +651,7 @@ string ParsedS3Url::GetHTTPUrl(S3AuthParams &auth_params, const string &http_que
 	return full_url;
 }
 
-unique_ptr<HTTPResponse> S3FileSystem::PostRequest(FileHandle &handle, string url, HeaderMap header_map,
+unique_ptr<HTTPResponse> S3FileSystem::PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                       duckdb::unique_ptr<char[]> &buffer_out, idx_t &buffer_out_len,
                                                       char *buffer_in, idx_t buffer_in_len, string http_params) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
@@ -664,7 +664,7 @@ unique_ptr<HTTPResponse> S3FileSystem::PostRequest(FileHandle &handle, string ur
 	return HTTPFileSystem::PostRequest(handle, http_url, headers, buffer_out, buffer_out_len, buffer_in, buffer_in_len);
 }
 
-unique_ptr<HTTPResponse> S3FileSystem::PutRequest(FileHandle &handle, string url, HeaderMap header_map,
+unique_ptr<HTTPResponse> S3FileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                      char *buffer_in, idx_t buffer_in_len, string http_params) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(url, auth_params);
@@ -677,7 +677,7 @@ unique_ptr<HTTPResponse> S3FileSystem::PutRequest(FileHandle &handle, string url
 	return HTTPFileSystem::PutRequest(handle, http_url, headers, buffer_in, buffer_in_len);
 }
 
-unique_ptr<HTTPResponse> S3FileSystem::HeadRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> S3FileSystem::HeadRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
 	string http_url = parsed_s3_url.GetHTTPUrl(auth_params);
@@ -686,7 +686,7 @@ unique_ptr<HTTPResponse> S3FileSystem::HeadRequest(FileHandle &handle, string s3
 	return HTTPFileSystem::HeadRequest(handle, http_url, headers);
 }
 
-unique_ptr<HTTPResponse> S3FileSystem::GetRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> S3FileSystem::GetRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
 	string http_url = parsed_s3_url.GetHTTPUrl(auth_params);
@@ -695,7 +695,7 @@ unique_ptr<HTTPResponse> S3FileSystem::GetRequest(FileHandle &handle, string s3_
 	return HTTPFileSystem::GetRequest(handle, http_url, headers);
 }
 
-unique_ptr<HTTPResponse> S3FileSystem::GetRangeRequest(FileHandle &handle, string s3_url, HeaderMap header_map,
+unique_ptr<HTTPResponse> S3FileSystem::GetRangeRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,
                                                           idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
@@ -705,7 +705,7 @@ unique_ptr<HTTPResponse> S3FileSystem::GetRangeRequest(FileHandle &handle, strin
 	return HTTPFileSystem::GetRangeRequest(handle, http_url, headers, file_offset, buffer_out, buffer_out_len);
 }
 
-unique_ptr<HTTPResponse> S3FileSystem::DeleteRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> S3FileSystem::DeleteRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
 	string http_url = parsed_s3_url.GetHTTPUrl(auth_params);

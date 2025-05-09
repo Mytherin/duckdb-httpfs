@@ -24,7 +24,7 @@
 
 namespace duckdb {
 
-duckdb::unique_ptr<duckdb_httplib_openssl::Headers> HTTPFileSystem::InitializeHeaders(HeaderMap &header_map,
+duckdb::unique_ptr<duckdb_httplib_openssl::Headers> HTTPFileSystem::InitializeHeaders(HTTPHeaders &header_map,
                                                                                       const HTTPParams &http_params) {
 	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
 	for (auto &entry : header_map) {
@@ -188,7 +188,7 @@ HTTPFileSystem::RunRequestWithRetry(const std::function<unique_ptr<HTTPResponse>
 	}
 }
 
-unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string url, HeaderMap header_map,
+unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                         duckdb::unique_ptr<char[]> &buffer_out, idx_t &buffer_out_len,
                                                         char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
@@ -268,7 +268,7 @@ unique_ptr<duckdb_httplib_openssl::Client> HTTPFileSystem::GetClient(const HTTPP
 	return client;
 }
 
-unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HeaderMap header_map,
+unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                        char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
@@ -287,7 +287,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string u
 	return RunRequestWithRetry(request, url, "PUT", hfh.http_params);
 }
 
-unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
@@ -309,7 +309,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 	hfh.StoreClient(std::move(http_client));
 	return response;
 }
-unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, string url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
@@ -332,7 +332,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 	return response;
 }
 
-unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
@@ -392,7 +392,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 	return response;
 }
 
-unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, string url, HeaderMap header_map,
+unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                             idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
@@ -892,16 +892,6 @@ unique_ptr<duckdb_httplib_openssl::Client> HTTPFileHandle::CreateClient(optional
 
 void HTTPFileHandle::StoreClient(unique_ptr<duckdb_httplib_openssl::Client> client) {
 	client_cache.StoreClient(std::move(client));
-}
-
-ResponseWrapper::ResponseWrapper(duckdb_httplib_openssl::Response &res, string &original_url) {
-	code = res.status;
-	error = res.reason;
-	for (auto &h : res.headers) {
-		headers[h.first] = h.second;
-	}
-	http_url = original_url;
-	body = res.body;
 }
 
 HTTPFileHandle::~HTTPFileHandle() = default;

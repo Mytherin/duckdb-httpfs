@@ -178,19 +178,19 @@ public:
 	string GetName() const override;
 
 public:
-	duckdb::unique_ptr<HTTPResponse> HeadRequest(FileHandle &handle, string s3_url, HeaderMap header_map) override;
-	duckdb::unique_ptr<HTTPResponse> GetRequest(FileHandle &handle, string url, HeaderMap header_map) override;
-	duckdb::unique_ptr<HTTPResponse> GetRangeRequest(FileHandle &handle, string s3_url, HeaderMap header_map,
+	duckdb::unique_ptr<HTTPResponse> HeadRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map) override;
+	duckdb::unique_ptr<HTTPResponse> GetRequest(FileHandle &handle, string url, HTTPHeaders header_map) override;
+	duckdb::unique_ptr<HTTPResponse> GetRangeRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,
 	                                                    idx_t file_offset, char *buffer_out,
 	                                                    idx_t buffer_out_len) override;
-	duckdb::unique_ptr<HTTPResponse> PostRequest(FileHandle &handle, string s3_url, HeaderMap header_map,
+	duckdb::unique_ptr<HTTPResponse> PostRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,
 	                                                duckdb::unique_ptr<char[]> &buffer_out, idx_t &buffer_out_len,
 	                                                char *buffer_in, idx_t buffer_in_len,
 	                                                string http_params = "") override;
-	duckdb::unique_ptr<HTTPResponse> PutRequest(FileHandle &handle, string s3_url, HeaderMap header_map,
+	duckdb::unique_ptr<HTTPResponse> PutRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,
 	                                               char *buffer_in, idx_t buffer_in_len,
 	                                               string http_params = "") override;
-	duckdb::unique_ptr<HTTPResponse> DeleteRequest(FileHandle &handle, string s3_url, HeaderMap header_map) override;
+	duckdb::unique_ptr<HTTPResponse> DeleteRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map) override;
 
 	static void Verify();
 

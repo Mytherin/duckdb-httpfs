@@ -25,19 +25,6 @@ namespace duckdb {
 
 class HTTPLogger;
 
-using HeaderMap = case_insensitive_map_t<string>;
-
-// avoid including httplib in header
-struct ResponseWrapper {
-public:
-	explicit ResponseWrapper(duckdb_httplib_openssl::Response &res, string &original_url);
-	int code;
-	string error;
-	HeaderMap headers;
-	string http_url;
-	string body;
-};
-
 struct HTTPParams {
 
 	static constexpr uint64_t DEFAULT_TIMEOUT_SECONDS = 30; // 30 sec
@@ -126,7 +113,7 @@ public:
 
 	shared_ptr<HTTPState> state;
 
-	void AddHeaders(HeaderMap &map);
+	void AddHeaders(HTTPHeaders &map);
 
 	// Get a Client to run requests over
 	unique_ptr<duckdb_httplib_openssl::Client> GetClient(optional_ptr<ClientContext> client_context);
@@ -154,7 +141,7 @@ public:
 	GetClient(const HTTPParams &http_params, const char *proto_host_port, optional_ptr<HTTPFileHandle> hfs);
 	static void ParseUrl(string &url, string &path_out, string &proto_host_port_out);
 	static bool TryParseLastModifiedTime(const string &timestamp, time_t &result);
-	static duckdb::unique_ptr<duckdb_httplib_openssl::Headers> InitializeHeaders(HeaderMap &header_map,
+	static duckdb::unique_ptr<duckdb_httplib_openssl::Headers> InitializeHeaders(HTTPHeaders &header_map,
 	                                                                             const HTTPParams &http_params);
 
 	vector<OpenFileInfo> Glob(const string &path, FileOpener *opener = nullptr) override {
@@ -162,22 +149,22 @@ public:
 	}
 
 	// HTTP Requests
-	virtual duckdb::unique_ptr<HTTPResponse> HeadRequest(FileHandle &handle, string url, HeaderMap header_map);
+	virtual duckdb::unique_ptr<HTTPResponse> HeadRequest(FileHandle &handle, string url, HTTPHeaders header_map);
 	// Get Request with range parameter that GETs exactly buffer_out_len bytes from the url
-	virtual duckdb::unique_ptr<HTTPResponse> GetRangeRequest(FileHandle &handle, string url, HeaderMap header_map,
+	virtual duckdb::unique_ptr<HTTPResponse> GetRangeRequest(FileHandle &handle, string url, HTTPHeaders header_map,
 	                                                            idx_t file_offset, char *buffer_out,
 	                                                            idx_t buffer_out_len);
 	// Get Request without a range (i.e., downloads full file)
-	virtual duckdb::unique_ptr<HTTPResponse> GetRequest(FileHandle &handle, string url, HeaderMap header_map);
+	virtual duckdb::unique_ptr<HTTPResponse> GetRequest(FileHandle &handle, string url, HTTPHeaders header_map);
 	// Post Request that can handle variable sized responses without a content-length header (needed for s3 multipart)
-	virtual duckdb::unique_ptr<HTTPResponse> PostRequest(FileHandle &handle, string url, HeaderMap header_map,
+	virtual duckdb::unique_ptr<HTTPResponse> PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
 	                                                        duckdb::unique_ptr<char[]> &buffer_out,
 	                                                        idx_t &buffer_out_len, char *buffer_in, idx_t buffer_in_len,
 	                                                        string params = "");
-	virtual duckdb::unique_ptr<HTTPResponse> PutRequest(FileHandle &handle, string url, HeaderMap header_map,
+	virtual duckdb::unique_ptr<HTTPResponse> PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
 	                                                       char *buffer_in, idx_t buffer_in_len, string params = "");
 
-	virtual duckdb::unique_ptr<HTTPResponse> DeleteRequest(FileHandle &handle, string url, HeaderMap header_map);
+	virtual duckdb::unique_ptr<HTTPResponse> DeleteRequest(FileHandle &handle, string url, HTTPHeaders header_map);
 
 	// FS methods
 	void Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override;

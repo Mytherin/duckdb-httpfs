@@ -53,7 +53,7 @@ unique_ptr<duckdb_httplib_openssl::Client> HFFileHandle::CreateClient(optional_p
 
 string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_params, string &next_page_url,
                                             optional_ptr<HTTPState> state) {
-	HeaderMap header_map;
+	HTTPHeaders header_map;
 	auto headers = HTTPFileSystem::InitializeHeaders(header_map, http_params);
 	string link_header_result;
 
@@ -268,20 +268,20 @@ vector<OpenFileInfo> HuggingFaceFileSystem::Glob(const string &path, FileOpener 
 }
 
 unique_ptr<HTTPResponse> HuggingFaceFileSystem::HeadRequest(FileHandle &handle, string hf_url,
-                                                               HeaderMap header_map) {
+                                                               HTTPHeaders header_map) {
 	auto &hf_handle = handle.Cast<HFFileHandle>();
 	auto http_url = HuggingFaceFileSystem::GetFileUrl(hf_handle.parsed_url);
 	return HTTPFileSystem::HeadRequest(handle, http_url, header_map);
 }
 
-unique_ptr<HTTPResponse> HuggingFaceFileSystem::GetRequest(FileHandle &handle, string s3_url, HeaderMap header_map) {
+unique_ptr<HTTPResponse> HuggingFaceFileSystem::GetRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map) {
 	auto &hf_handle = handle.Cast<HFFileHandle>();
 	auto http_url = HuggingFaceFileSystem::GetFileUrl(hf_handle.parsed_url);
 	return HTTPFileSystem::GetRequest(handle, http_url, header_map);
 }
 
 unique_ptr<HTTPResponse> HuggingFaceFileSystem::GetRangeRequest(FileHandle &handle, string s3_url,
-                                                                   HeaderMap header_map, idx_t file_offset,
+                                                                   HTTPHeaders header_map, idx_t file_offset,
                                                                    char *buffer_out, idx_t buffer_out_len) {
 	auto &hf_handle = handle.Cast<HFFileHandle>();
 	auto http_url = HuggingFaceFileSystem::GetFileUrl(hf_handle.parsed_url);

@@ -117,7 +117,6 @@ public:
 	virtual ~HTTPClient() = default;
 
 	virtual void SetLogger(HTTPLogger &logger) = 0;
-	virtual duckdb_httplib_openssl::Client &GetHTTPLibClient() = 0;
 
 	virtual unique_ptr<HTTPResponse> Get(GetRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Put(PutRequestInfo &info) = 0;

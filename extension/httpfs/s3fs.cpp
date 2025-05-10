@@ -110,14 +110,6 @@ static HTTPHeaders create_s3_header(string url, string query, string host, strin
 	return res;
 }
 
-static duckdb::unique_ptr<duckdb_httplib_openssl::Headers> initialize_http_headers(HTTPHeaders &header_map) {
-	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
-	for (auto &entry : header_map) {
-		headers->insert(entry);
-	}
-	return headers;
-}
-
 string S3FileSystem::UrlDecode(string input) {
 	return StringUtil::URLDecode(input, true);
 }
@@ -1098,32 +1090,27 @@ string AWSListObjectV2::Request(string &path, HTTPParams &http_params, S3AuthPar
 
 	auto header_map =
 	    create_s3_header(req_path, req_params, parsed_url.host, "s3", "GET", s3_auth_params, "", "", "", "");
-	auto headers = initialize_http_headers(header_map);
 
 	auto client = S3FileSystem::GetClient(http_params, (parsed_url.http_proto + parsed_url.host).c_str(),
 	                                      nullptr); // Get requests use fresh connection
 	std::stringstream response;
-	auto &httplib_client = client->GetHTTPLibClient();
-	auto res = httplib_client.Get(
-	    listobjectv2_url.c_str(), *headers,
-	    [&](const duckdb_httplib_openssl::Response &response) {
-		    if (response.status >= 400) {
+	GetRequestInfo get_request(listobjectv2_url, header_map,
+	    [&](const HTTPResponse &response) {
+		    if (static_cast<int>(response.status) >= 400) {
 			    throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", listobjectv2_url, response.status);
 		    }
 		    return true;
 	    },
-	    [&](const char *data, size_t data_length) {
+	    [&](const_data_ptr_t data, idx_t data_length) {
 		    if (state) {
 			    state->total_bytes_received += data_length;
 		    }
-		    response << string(data, data_length);
+		    response << string(const_char_ptr_cast(data), data_length);
 		    return true;
-	    });
-	if (state) {
-		state->get_count++;
-	}
-	if (res.error() != duckdb_httplib_openssl::Error::Success) {
-		throw IOException(to_string(res.error()) + " error for HTTP GET to '" + listobjectv2_url + "'");
+	    }, state);
+	auto result = client->Get(get_request);
+	if (result->HasRequestError()) {
+		throw IOException("%s error for HTTP GET to '%s'", result->GetRequestError(), listobjectv2_url);
 	}
 
 	return response.str();

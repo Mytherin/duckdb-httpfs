@@ -256,9 +256,6 @@ public:
 		client->set_logger(
 			logger.GetLogger<duckdb_httplib_openssl::Request, duckdb_httplib_openssl::Response>());
 	}
-	duckdb_httplib_openssl::Client &GetHTTPLibClient() override {
-		return *client;
-	}
 	unique_ptr<HTTPResponse> Get(GetRequestInfo &info) override {
 		if (info.state) {
 			info.state->get_count++;

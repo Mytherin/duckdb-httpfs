@@ -275,7 +275,7 @@ unique_ptr<HTTPClient> S3FileHandle::CreateClient() {
 	auto parsed_url = S3FileSystem::S3UrlParse(path, this->auth_params);
 
 	string proto_host_port = parsed_url.http_proto + parsed_url.host;
-	return HTTPFSUtil::InitializeClient(http_params, proto_host_port);
+	return http_params.http_util->InitializeClient(http_params, proto_host_port);
 }
 
 // Opens the multipart upload and returns the ID
@@ -997,9 +997,9 @@ string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthP
 	    create_s3_header(req_path, req_params, parsed_url.host, "s3", "GET", s3_auth_params, "", "", "", "");
 
 	// Get requests use fresh connection
-	auto client = HTTPFSUtil::InitializeClient(http_params, parsed_url.http_proto + parsed_url.host);
+	auto client = http_params.http_util->InitializeClient(http_params, parsed_url.http_proto + parsed_url.host);
 	std::stringstream response;
-	GetRequestInfo get_request(listobjectv2_url, header_map, http_params, state,
+	GetRequestInfo get_request(listobjectv2_url, header_map, http_params,
 	    [&](const HTTPResponse &response) {
 		    if (static_cast<int>(response.status) >= 400) {
 			    throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", listobjectv2_url, response.status);
@@ -1010,7 +1010,7 @@ string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthP
 		    response << string(const_char_ptr_cast(data), data_length);
 		    return true;
 	    });
-	auto result = client->Get(get_request);
+	auto result = http_params.http_util->Request(get_request);
 	if (result->HasRequestError()) {
 		throw IOException("%s error for HTTP GET to '%s'", result->GetRequestError(), listobjectv2_url);
 	}

@@ -7,7 +7,7 @@
 #include "duckdb/common/unordered_map.hpp"
 #include "duckdb/main/client_data.hpp"
 #include "http_metadata_cache.hpp"
-#include "httplib_client.hpp"
+#include "httpfs_client.hpp"
 
 #include <mutex>
 

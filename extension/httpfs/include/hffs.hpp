@@ -48,7 +48,7 @@ protected:
 	duckdb::unique_ptr<HTTPFileHandle> CreateHandle(const OpenFileInfo &file, FileOpenFlags flags,
 	                                                optional_ptr<FileOpener> opener) override;
 
-	string ListHFRequest(ParsedHFUrl &url, HTTPParams &http_params, string &next_page_url,
+	string ListHFRequest(ParsedHFUrl &url, HTTPFSParams &http_params, string &next_page_url,
 	                     optional_ptr<HTTPState> state);
 };
 

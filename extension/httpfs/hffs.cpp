@@ -45,16 +45,16 @@ static string ParseNextUrlFromLinkHeader(const string &link_header_content) {
 HFFileHandle::~HFFileHandle() {};
 
 unique_ptr<HTTPClient> HFFileHandle::CreateClient() {
-	return HTTPFSUtil::InitializeClient(http_params, parsed_url.endpoint);
+	return http_params.http_util->InitializeClient(http_params, parsed_url.endpoint);
 }
 
-string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_params, string &next_page_url,
+string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPFSParams &http_params, string &next_page_url,
                                             optional_ptr<HTTPState> state) {
 	HTTPHeaders header_map;
 	string link_header_result;
 
 	std::stringstream response;
-	GetRequestInfo get_request(url.endpoint, next_page_url, header_map, http_params, state,
+	GetRequestInfo get_request(url.endpoint, next_page_url, header_map, http_params,
 		[&](const HTTPResponse &response) {
 			if (static_cast<int>(response.status) >= 400) {
 				throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", next_page_url, response.status);
@@ -68,7 +68,7 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_p
 			response << string(const_char_ptr_cast(data), data_length);
 			return true;
 		});
-	auto res = HTTPFSUtil::Request(get_request);
+	auto res = http_params.http_util->Request(get_request);
 	if (res->status != HTTPStatusCode::OK_200) {
 		throw IOException(res->GetError() + " error for HTTP GET to '" + next_page_url + "'");
 	}

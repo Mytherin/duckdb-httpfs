@@ -14,7 +14,7 @@ build_static_extension(
   extension/httpfs/hffs.cpp
   extension/httpfs/s3fs.cpp
   extension/httpfs/httpfs.cpp
-  extension/httpfs/httplib_client.cpp
+        extension/httpfs/httpfs_client.cpp
   extension/httpfs/http_state.cpp
   extension/httpfs/crypto.cpp
   extension/httpfs/create_secret_functions.cpp

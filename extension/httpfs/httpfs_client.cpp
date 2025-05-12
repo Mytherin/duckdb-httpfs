@@ -1,4 +1,4 @@
-#include "httplib_client.hpp"
+#include "httpfs_client.hpp"
 #include "http_state.hpp"
 #include "duckdb/logging/http_logger.hpp"
 
@@ -7,64 +7,9 @@
 
 namespace duckdb {
 
-BaseRequest::BaseRequest(RequestType type, const string &url, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state) :
-		type(type), url(url), headers(headers), params(params), state(state) {
-	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
-}
-
-void HTTPFSUtil::DecomposeURL(const string &url, string &path_out, string &proto_host_port_out) {
-	if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
-		throw IOException("URL needs to start with http:// or https://");
-	}
-	auto slash_pos = url.find('/', 8);
-	if (slash_pos == string::npos) {
-		throw IOException("URL needs to contain a '/' after the host");
-	}
-	proto_host_port_out = url.substr(0, slash_pos);
-
-	path_out = url.substr(slash_pos);
-
-	if (path_out.empty()) {
-		throw IOException("URL needs to contain a path");
-	}
-}
-
-duckdb::unique_ptr<duckdb_httplib_openssl::Headers> TransformHeaders(const HTTPHeaders &header_map, const HTTPParams &params) {
-	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
-	for(auto &entry : header_map) {
-		headers->insert(entry);
-	}
-	for (auto &entry : params.extra_headers) {
-		headers->insert(entry);
-	}
-	return headers;
-}
-
-unique_ptr<HTTPResponse> TransformResponse(const duckdb_httplib_openssl::Response &response) {
-	auto status_code = HTTPUtil::ToStatusCode(response.status);
-	auto result = make_uniq<HTTPResponse>(status_code);
-	result->body = response.body;
-	result->reason = response.reason;
-	for (auto &entry : response.headers) {
-		result->headers.Insert(entry.first, entry.second);
-	}
-	return result;
-}
-
-unique_ptr<HTTPResponse> TransformResult(duckdb_httplib_openssl::Result &&res) {
-	if (res.error() == duckdb_httplib_openssl::Error::Success) {
-		auto &response = res.value();
-		return TransformResponse(response);
-	} else {
-		auto result = make_uniq<HTTPResponse>(HTTPStatusCode::INVALID);
-		result->request_error = to_string(res.error());
-		return result;
-	}
-}
-
-class HTTPLibClient : public HTTPClient {
+class HTTPFSClient : public HTTPClient {
 public:
-	HTTPLibClient(HTTPFSParams &http_params, const string &proto_host_port) {
+	HTTPFSClient(HTTPFSParams &http_params, const string &proto_host_port) {
 		client = make_uniq<duckdb_httplib_openssl::Client>(proto_host_port);
 		client->set_follow_location(true);
 		client->set_keep_alive(http_params.keep_alive);
@@ -90,6 +35,7 @@ public:
 				client->set_proxy_basic_auth(http_params.http_proxy_username, http_params.http_proxy_password);
 			}
 		}
+		state = http_params.state;
 	}
 
 	void SetLogger(HTTPLogger &logger) {
@@ -97,63 +43,67 @@ public:
 			logger.GetLogger<duckdb_httplib_openssl::Request, duckdb_httplib_openssl::Response>());
 	}
 	unique_ptr<HTTPResponse> Get(GetRequestInfo &info) override {
-		if (info.state) {
-			info.state->get_count++;
+		if (state) {
+			state->get_count++;
 		}
-        auto headers = TransformHeaders(info.headers, info.params);
-        return TransformResult(client->Get(info.path.c_str(), *headers,
-		    [&](const duckdb_httplib_openssl::Response &response) {
-		    	auto http_response = TransformResponse(response);
-		    	return info.response_handler(*http_response);
-		    },
-            [&](const char *data, size_t data_length) {
-			    if (info.state) {
-				    info.state->total_bytes_received += data_length;
-			    }
-				return info.content_handler(const_data_ptr_cast(data), data_length);
-            }));
+		auto headers = TransformHeaders(info.headers, info.params);
+		if (!info.response_handler && !info.content_handler) {
+			return TransformResult(client->Get(info.path, headers));
+		} else {
+			return TransformResult(client->Get(info.path.c_str(), headers,
+				[&](const duckdb_httplib_openssl::Response &response) {
+					auto http_response = TransformResponse(response);
+					return info.response_handler(*http_response);
+				},
+				[&](const char *data, size_t data_length) {
+					if (state) {
+						state->total_bytes_received += data_length;
+					}
+					return info.content_handler(const_data_ptr_cast(data), data_length);
+				}));
+		}
 	}
 	unique_ptr<HTTPResponse> Put(PutRequestInfo &info) override {
-        if (info.state) {
-            info.state->put_count++;
-            info.state->total_bytes_sent += info.buffer_in_len;
+        if (state) {
+            state->put_count++;
+            state->total_bytes_sent += info.buffer_in_len;
         }
         auto headers = TransformHeaders(info.headers, info.params);
-        return TransformResult(client->Put(info.path.c_str(), *headers, const_char_ptr_cast(info.buffer_in), info.buffer_in_len, info.content_type));
+        return TransformResult(client->Put(info.path.c_str(), headers, const_char_ptr_cast(info.buffer_in), info.buffer_in_len, info.content_type));
 	}
 
 	unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) override {
-        if (info.state) {
-            info.state->head_count++;
+        if (state) {
+            state->head_count++;
         }
         auto headers = TransformHeaders(info.headers, info.params);
-        return TransformResult(client->Head(info.path.c_str(), *headers));
+        return TransformResult(client->Head(info.path.c_str(), headers));
 	}
 
 	unique_ptr<HTTPResponse> Delete(DeleteRequestInfo &info) override {
-        if (info.state) {
-            info.state->delete_count++;
+        if (state) {
+            state->delete_count++;
         }
         auto headers = TransformHeaders(info.headers, info.params);
-        return TransformResult(client->Delete(info.path.c_str(), *headers));
+        return TransformResult(client->Delete(info.path.c_str(), headers));
 	}
 
 	unique_ptr<HTTPResponse> Post(PostRequestInfo &info) override {
-        if (info.state) {
-            info.state->post_count++;
-            info.state->total_bytes_sent += info.buffer_in_len;
+        if (state) {
+            state->post_count++;
+            state->total_bytes_sent += info.buffer_in_len;
         }
 		idx_t out_offset = 0;
         // We use a custom Request method here, because there is no Post call with a contentreceiver in httplib
         duckdb_httplib_openssl::Request req;
         req.method = "POST";
         req.path = info.path;
-        req.headers = *TransformHeaders(info.headers, info.params);
+        req.headers = TransformHeaders(info.headers, info.params);
         req.headers.emplace("Content-Type", "application/octet-stream");
         req.content_receiver = [&](const char *data, size_t data_length, uint64_t /*offset*/,
                                    uint64_t /*total_length*/) {
-            if (info.state) {
-                info.state->total_bytes_received += data_length;
+            if (state) {
+                state->total_bytes_received += data_length;
             }
             if (out_offset + data_length > info.buffer_out_len) {
                 // Buffer too small, increase its size by at least 2x to fit the new value
@@ -171,13 +121,49 @@ public:
         return TransformResult(client->send(req));
 	}
 
+private:
+    duckdb_httplib_openssl::Headers TransformHeaders(const HTTPHeaders &header_map, const HTTPParams &params) {
+    	duckdb_httplib_openssl::Headers headers;
+        for(auto &entry : header_map) {
+            headers.insert(entry);
+        }
+        for (auto &entry : params.extra_headers) {
+            headers.insert(entry);
+        }
+        return headers;
+    }
+
+    unique_ptr<HTTPResponse> TransformResponse(const duckdb_httplib_openssl::Response &response) {
+        auto status_code = HTTPUtil::ToStatusCode(response.status);
+        auto result = make_uniq<HTTPResponse>(status_code);
+        result->body = response.body;
+        result->reason = response.reason;
+        for (auto &entry : response.headers) {
+            result->headers.Insert(entry.first, entry.second);
+        }
+        return result;
+    }
+
+    unique_ptr<HTTPResponse> TransformResult(duckdb_httplib_openssl::Result &&res) {
+        if (res.error() == duckdb_httplib_openssl::Error::Success) {
+            auto &response = res.value();
+            return TransformResponse(response);
+        } else {
+            auto result = make_uniq<HTTPResponse>(HTTPStatusCode::INVALID);
+            result->request_error = to_string(res.error());
+            return result;
+        }
+    }
+
+private:
 	unique_ptr<duckdb_httplib_openssl::Client> client;
+	optional_ptr<HTTPState> state;
 };
 
 
 unique_ptr<HTTPClient> HTTPFSUtil::InitializeClient(HTTPParams &http_params,
 										const string &proto_host_port) {
-	auto client = make_uniq<HTTPLibClient>(http_params.Cast<HTTPFSParams>(), proto_host_port);
+	auto client = make_uniq<HTTPFSClient>(http_params.Cast<HTTPFSParams>(), proto_host_port);
 	return client;
 }
 

@@ -21,28 +21,20 @@
 
 namespace duckdb {
 
-void HTTPParams::Initialize(DatabaseInstance &db) {
-	if (!db.config.options.http_proxy.empty()) {
-		idx_t port;
-		string host;
-		HTTPUtil::ParseHTTPProxyHost(db.config.options.http_proxy, host, port);
-		http_proxy = host;
-		http_proxy_port = port;
+shared_ptr<HTTPUtil> GetHTTPUtil(optional_ptr<FileOpener> opener) {
+	if (opener) {
+		auto db = opener->TryGetDatabase();
+		if (db) {
+			auto &config = DBConfig::GetConfig(*db);
+			return config.http_util;
+		}
 	}
-	http_proxy_username = db.config.options.http_proxy_username;
-	http_proxy_password = db.config.options.http_proxy_password;
-}
-
-void HTTPParams::Initialize(ClientContext &context) {
-	Initialize(*context.db);
-	auto &client_config = ClientConfig::GetConfig(context);
-	if (client_config.enable_http_logging) {
-		logger = context.client_data->http_logger.get();
-	}
+	return make_shared_ptr<HTTPFSUtil>();
 }
 
 HTTPFSParams HTTPFSParams::ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info) {
 	HTTPFSParams result;
+	result.http_util = GetHTTPUtil(opener);
 
 	// No point in continueing without an opener
 	if (!opener) {
@@ -121,129 +113,30 @@ void HTTPClientCache::StoreClient(unique_ptr<HTTPClient> client) {
 	clients.push_back(std::move(client));
 }
 
-// Retry the request performed by fun using the exponential backoff strategy defined in params. Before retry, the
-// retry callback is called
-duckdb::unique_ptr<HTTPResponse>
-HTTPFSUtil::RunRequestWithRetry(const std::function<unique_ptr<HTTPResponse>(void)> &request, const string &url,
-                                    string method, const HTTPParams &params,
-                                    const std::function<void(void)> &retry_cb) {
-	idx_t tries = 0;
-	while (true) {
-		std::exception_ptr caught_e = nullptr;
-		unique_ptr<HTTPResponse> response;
-
-		try {
-			response = request();
-			response->url = url;
-		} catch (IOException &e) {
-			caught_e = std::current_exception();
-		} catch (HTTPException &e) {
-			caught_e = std::current_exception();
-		}
-
-		// Note: all duckdb_httplib_openssl::Error types will be retried.
-		bool should_retry = !response || response->ShouldRetry();
-		if (!should_retry) {
-			return response;
-		}
-
-		tries += 1;
-		if (tries <= params.retries) {
-			if (tries > 1) {
-				uint64_t sleep_amount = (uint64_t)((float)params.retry_wait_ms * pow(params.retry_backoff, tries - 2));
-				std::this_thread::sleep_for(std::chrono::milliseconds(sleep_amount));
-			}
-			if (retry_cb) {
-				retry_cb();
-			}
-		} else {
-			if (caught_e) {
-				std::rethrow_exception(caught_e);
-			} else if (response && !response->HasRequestError()) {
-				throw HTTPException(*response, "Request returned HTTP %d for HTTP %s to '%s'", static_cast<int>(response->status), method, url);
-			} else {
-				string error = response ? response->GetError() : "Unknown error";
-				throw IOException("%s error for HTTP %s to '%s'", error, method, url);
-			}
-		}
-	}
-}
-
-unique_ptr<HTTPResponse> HTTPClient::Request(BaseRequest &request) {
-	switch(request.type) {
-	case RequestType::GET_REQUEST:
-		return Get(request.Cast<GetRequestInfo>());
-	case RequestType::PUT_REQUEST:
-		return Put(request.Cast<PutRequestInfo>());
-	case RequestType::HEAD_REQUEST:
-		return Head(request.Cast<HeadRequestInfo>());
-	case RequestType::DELETE_REQUEST:
-		return Delete(request.Cast<DeleteRequestInfo>());
-	case RequestType::POST_REQUEST:
-		return Post(request.Cast<PostRequestInfo>());
-	default:
-		throw InternalException("Unsupported request type");
-	}
-}
-
-unique_ptr<HTTPResponse> HTTPFSUtil::Request(BaseRequest &request) {
-	unique_ptr<HTTPClient> client;
-	return Request(request, client);
-}
-
-string RequestTypeToString(RequestType type) {
-	switch(type) {
-	case RequestType::GET_REQUEST:
-		return "GET";
-	case RequestType::PUT_REQUEST:
-		return "PUT";
-	case RequestType::HEAD_REQUEST:
-		return "HEAD";
-	case RequestType::DELETE_REQUEST:
-		return "DELETE";
-	case RequestType::POST_REQUEST:
-		return "POST";
-	default:
-		throw InternalException("Unsupported request type");
-	}
-}
-
-unique_ptr<HTTPResponse> HTTPFSUtil::Request(BaseRequest &request, unique_ptr<HTTPClient> &client) {
-	if (!client) {
-		client = HTTPFSUtil::InitializeClient(request.params, request.proto_host_port);
-	}
-
-	std::function<unique_ptr<HTTPResponse>(void)> on_request([&]() {
-		return client->Request(request);
-	});
-	// Refresh the client on retries
-	std::function<void(void)> on_retry(
-	    [&]() { client = HTTPFSUtil::InitializeClient(request.params, request.proto_host_port); });
-
-	return RunRequestWithRetry(on_request, request.url, RequestTypeToString(request.type), request.params);
-}
-
 unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                         duckdb::unique_ptr<char[]> &buffer_out, idx_t &buffer_out_len,
                                                         char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
-	PostRequestInfo post_request(url, header_map, hfh.http_params, hfh.state.get(), const_data_ptr_cast(buffer_in), buffer_in_len);
-	return HTTPFSUtil::Request(post_request);
+	auto &http_util = *hfh.http_params.http_util;
+	PostRequestInfo post_request(url, header_map, hfh.http_params, const_data_ptr_cast(buffer_in), buffer_in_len);
+	return http_util.Request(post_request);
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                        char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
-	PutRequestInfo put_request(url, header_map, hfh.http_params, hfh.state.get(), (const_data_ptr_t) buffer_in, buffer_in_len, "application/octet-stream");
-	return HTTPFSUtil::Request(put_request);
+	auto &http_util = *hfh.http_params.http_util;
+	PutRequestInfo put_request(url, header_map, hfh.http_params, (const_data_ptr_t) buffer_in, buffer_in_len, "application/octet-stream");
+	return http_util.Request(put_request);
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
+	auto &http_util = *hfh.http_params.http_util;
 	auto http_client = hfh.GetClient();
 
-	HeadRequestInfo head_request(url, header_map, hfh.http_params, hfh.state.get());
-	auto response = HTTPFSUtil::Request(head_request, http_client);
+	HeadRequestInfo head_request(url, header_map, hfh.http_params);
+	auto response = http_util.Request(head_request, http_client);
 
 	hfh.StoreClient(std::move(http_client));
 	return response;
@@ -251,9 +144,10 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 
 unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
+	auto &http_util = *hfh.http_params.http_util;
 	auto http_client = hfh.GetClient();
-	DeleteRequestInfo delete_request(url, header_map, hfh.http_params, hfh.state.get());
-	auto response = HTTPFSUtil::Request(delete_request, http_client);
+	DeleteRequestInfo delete_request(url, header_map, hfh.http_params);
+	auto response = http_util.Request(delete_request, http_client);
 
 	hfh.StoreClient(std::move(http_client));
 	return response;
@@ -261,11 +155,12 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 
 unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
+	auto &http_util = *hfh.http_params.http_util;
 
 	D_ASSERT(hfh.cached_file_handle);
 
 	auto http_client = hfh.GetClient();
-	GetRequestInfo get_request(url, header_map, hfh.http_params, hfh.state.get(),
+	GetRequestInfo get_request(url, header_map, hfh.http_params,
 		[&](const HTTPResponse &response) {
 			if (static_cast<int>(response.status) >= 400) {
 				string error = "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + ")";
@@ -298,7 +193,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 			return true;
 		});
 
-	auto response = HTTPFSUtil::Request(get_request, http_client);
+	auto response = http_util.Request(get_request, http_client);
 
 	hfh.StoreClient(std::move(http_client));
 	return response;
@@ -307,6 +202,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                             idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
+	auto &http_util = *hfh.http_params.http_util;
 
 	// send the Range header to read only subset of file
 	string range_expr = "bytes=" + to_string(file_offset) + "-" + to_string(file_offset + buffer_out_len - 1);
@@ -316,7 +212,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 
 	idx_t out_offset = 0;
 
-	GetRequestInfo get_request(url, header_map, hfh.http_params, hfh.state.get(),
+	GetRequestInfo get_request(url, header_map, hfh.http_params,
 		[&](const HTTPResponse &response) {
 			if (static_cast<int>(response.status) >= 400) {
 				string error = "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + ")";
@@ -355,7 +251,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 			return true;
 		});
 
-	auto response = HTTPFSUtil::Request(get_request, http_client);
+	auto response = http_util.Request(get_request, http_client);
 
 	hfh.StoreClient(std::move(http_client));
 	return response;
@@ -400,7 +296,6 @@ HTTPFileHandle::HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpe
 		}
 	}
 }
-
 unique_ptr<HTTPFileHandle> HTTPFileSystem::CreateHandle(const OpenFileInfo &file, FileOpenFlags flags,
                                                         optional_ptr<FileOpener> opener) {
 	D_ASSERT(flags.Compression() == FileCompressionType::UNCOMPRESSED);
@@ -419,7 +314,6 @@ unique_ptr<HTTPFileHandle> HTTPFileSystem::CreateHandle(const OpenFileInfo &file
 			params.bearer_token = kv_secret.TryGetValue("token", true).ToString();
 		}
 	}
-
 	return duckdb::make_uniq<HTTPFileHandle>(*this, file, flags, params);
 }
 
@@ -768,8 +662,8 @@ unique_ptr<HTTPClient> HTTPFileHandle::GetClient() {
 unique_ptr<HTTPClient> HTTPFileHandle::CreateClient() {
 	// Create a new client
 	string path_out, proto_host_port;
-	HTTPFSUtil::DecomposeURL(path, path_out, proto_host_port);
-	return HTTPFSUtil::InitializeClient(http_params, proto_host_port);
+	HTTPUtil::DecomposeURL(path, path_out, proto_host_port);
+	return http_params.http_util->InitializeClient(http_params, proto_host_port);
 }
 
 void HTTPFileHandle::StoreClient(unique_ptr<HTTPClient> client) {

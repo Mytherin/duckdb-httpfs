@@ -164,7 +164,7 @@ private:
 unique_ptr<HTTPClient> HTTPFSUtil::InitializeClient(HTTPParams &http_params,
 										const string &proto_host_port) {
 	auto client = make_uniq<HTTPFSClient>(http_params.Cast<HTTPFSParams>(), proto_host_port);
-	return client;
+	return std::move(client);
 }
 
 unordered_map<string, string> HTTPFSUtil::ParseGetParameters(const string &text) {

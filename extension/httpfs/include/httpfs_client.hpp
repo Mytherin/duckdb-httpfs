@@ -17,7 +17,7 @@ struct HTTPFSParams : public HTTPParams {
 	string ca_cert_file;
 	string bearer_token;
 	shared_ptr<HTTPUtil> http_util;
-	optional_ptr<HTTPState> state;
+	shared_ptr<HTTPState> state;
 
 	static HTTPFSParams ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info);
 };

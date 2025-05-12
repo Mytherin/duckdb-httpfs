@@ -341,7 +341,7 @@ unique_ptr<FileHandle> HTTPFileSystem::OpenFileExtended(const OpenFileInfo &file
 void HTTPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 
-	D_ASSERT(hfh.state);
+	D_ASSERT(hfh.http_params.state);
 	if (hfh.cached_file_handle) {
 		if (!hfh.cached_file_handle->Initialized()) {
 			throw InternalException("Cached file not initialized properly");
@@ -509,7 +509,7 @@ static optional_ptr<HTTPMetadataCache> TryGetMetadataCache(optional_ptr<FileOpen
 
 void HTTPFileHandle::FullDownload(HTTPFileSystem &hfs, bool &should_write_cache) {
 	// We are going to download the file at full, we don't need to do no head request.
-	const auto &cache_entry = state->GetCachedFile(path);
+	const auto &cache_entry = http_params.state->GetCachedFile(path);
 	cached_file_handle = cache_entry->GetHandle();
 	if (!cached_file_handle->Initialized()) {
 		// Try to fully download the file first
@@ -598,9 +598,9 @@ void HTTPFileHandle::LoadFileInfo() {
 
 void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 	auto &hfs = file_system.Cast<HTTPFileSystem>();
-	state = HTTPState::TryGetState(opener);
-	if (!state) {
-		state = make_shared_ptr<HTTPState>();
+	http_params.state = HTTPState::TryGetState(opener);
+	if (!http_params.state) {
+		http_params.state = make_shared_ptr<HTTPState>();
 	}
 
 	auto current_cache = TryGetMetadataCache(opener, hfs);
@@ -640,7 +640,7 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 		read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
 	}
 
-	if (state && length == 0) {
+	if (http_params.state && length == 0) {
 		FullDownload(hfs, should_write_cache);
 	}
 	if (should_write_cache) {

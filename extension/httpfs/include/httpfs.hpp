@@ -65,8 +65,6 @@ public:
 	duckdb::unique_ptr<data_t[]> read_buffer;
 	constexpr static idx_t READ_BUFFER_LEN = 1000000;
 
-	shared_ptr<HTTPState> state;
-
 	void AddHeaders(HTTPHeaders &map);
 
 	// Get a Client to run requests over

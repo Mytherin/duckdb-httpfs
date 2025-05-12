@@ -108,9 +108,9 @@ class S3FileHandle : public HTTPFileHandle {
 	friend class S3FileSystem;
 
 public:
-	S3FileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, const HTTPFSParams &http_params,
+	S3FileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, HTTPFSParams http_params_p,
 	             const S3AuthParams &auth_params_p, const S3ConfigParams &config_params_p)
-	    : HTTPFileHandle(fs, file, flags, http_params), auth_params(auth_params_p),
+	    : HTTPFileHandle(fs, file, flags, std::move(http_params_p)), auth_params(auth_params_p),
 	      config_params(config_params_p), uploads_in_progress(0), parts_uploaded(0), upload_finalized(false),
 	      uploader_has_error(false), upload_exception(nullptr) {
 		if (flags.OpenForReading() && flags.OpenForWriting()) {

@@ -31,7 +31,7 @@ class HTTPFileSystem;
 
 class HTTPFileHandle : public FileHandle {
 public:
-	HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, const HTTPFSParams &params);
+	HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, HTTPFSParams params);
 	~HTTPFileHandle() override;
 	// This two-phase construction allows subclasses more flexible setup.
 	virtual void Initialize(optional_ptr<FileOpener> opener);
@@ -39,9 +39,7 @@ public:
 	// We keep an http client stored for connection reuse with keep-alive headers
 	HTTPClientCache client_cache;
 
-	optional_ptr<HTTPLogger> http_logger;
-
-	const HTTPFSParams http_params;
+	HTTPFSParams http_params;
 
 	// File handle info
 	FileOpenFlags flags;
@@ -93,8 +91,6 @@ private:
 
 class HTTPFileSystem : public FileSystem {
 public:
-	static duckdb::unique_ptr<HTTPClient>
-	GetClient(const HTTPParams &http_params, const char *proto_host_port, optional_ptr<HTTPFileHandle> hfs);
 	static bool TryParseLastModifiedTime(const string &timestamp, time_t &result);
 
 	vector<OpenFileInfo> Glob(const string &path, FileOpener *opener = nullptr) override {

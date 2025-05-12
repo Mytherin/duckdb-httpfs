@@ -25,9 +25,11 @@ struct HTTPParams {
 	string http_proxy_username;
 	string http_proxy_password;
 	unordered_map<string, string> extra_headers;
+	optional_ptr<HTTPLogger> logger;
 
 public:
 	void Initialize(DatabaseInstance &db);
+	void Initialize(ClientContext &context);
 
 	template <class TARGET>
 	TARGET &Cast() {
@@ -109,8 +111,6 @@ class HTTPClient {
 public:
 	virtual ~HTTPClient() = default;
 
-	virtual void SetLogger(HTTPLogger &logger) = 0;
-
 	virtual unique_ptr<HTTPResponse> Get(GetRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Put(PutRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) = 0;
@@ -120,9 +120,8 @@ public:
 
 class HTTPFSUtil {
 public:
-	static unique_ptr<HTTPClient> InitializeClient(const HTTPParams &http_params,
-											const char *proto_host_port,
-											optional_ptr<HTTPLogger> logger);
+	static unique_ptr<HTTPClient> InitializeClient(HTTPParams &http_params,
+											const string &proto_host_port);
 
 	static unordered_map<string, string> ParseGetParameters(const string &text);
 

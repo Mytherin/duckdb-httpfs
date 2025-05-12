@@ -45,7 +45,7 @@ static string ParseNextUrlFromLinkHeader(const string &link_header_content) {
 HFFileHandle::~HFFileHandle() {};
 
 unique_ptr<HTTPClient> HFFileHandle::CreateClient(optional_ptr<ClientContext> client_context) {
-	return HTTPFileSystem::GetClient(this->http_params, parsed_url.endpoint.c_str(), this);
+	return HTTPFSUtil::InitializeClient(http_params, parsed_url.endpoint);
 }
 
 string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_params, string &next_page_url,
@@ -53,7 +53,7 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_p
 	HTTPHeaders header_map;
 	string link_header_result;
 
-	auto client = HTTPFileSystem::GetClient(http_params, url.endpoint.c_str(), nullptr);
+	auto client = HTTPFSUtil::InitializeClient(http_params, url.endpoint);
 	std::stringstream response;
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {

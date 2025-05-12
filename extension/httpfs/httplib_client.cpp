@@ -42,7 +42,7 @@ unique_ptr<HTTPResponse> TransformResult(duckdb_httplib_openssl::Result &&res) {
 
 class HTTPLibClient : public HTTPClient {
 public:
-	HTTPLibClient(const HTTPFSParams &http_params, const char *proto_host_port, optional_ptr<HTTPLogger> logger) {
+	HTTPLibClient(HTTPFSParams &http_params, const string &proto_host_port) {
 		client = make_uniq<duckdb_httplib_openssl::Client>(proto_host_port);
 		client->set_follow_location(true);
 		client->set_keep_alive(http_params.keep_alive);
@@ -54,8 +54,8 @@ public:
 		client->set_read_timeout(http_params.timeout, http_params.timeout_usec);
 		client->set_connection_timeout(http_params.timeout, http_params.timeout_usec);
 		client->set_decompress(false);
-		if (logger) {
-			SetLogger(*logger);
+		if (http_params.logger) {
+			SetLogger(*http_params.logger);
 		}
 		if (!http_params.bearer_token.empty()) {
 			client->set_bearer_token_auth(http_params.bearer_token.c_str());
@@ -70,7 +70,7 @@ public:
 		}
 	}
 
-	void SetLogger(HTTPLogger &logger) override {
+	void SetLogger(HTTPLogger &logger) {
 		client->set_logger(
 			logger.GetLogger<duckdb_httplib_openssl::Request, duckdb_httplib_openssl::Response>());
 	}
@@ -150,10 +150,9 @@ public:
 };
 
 
-unique_ptr<HTTPClient> HTTPFSUtil::InitializeClient(const HTTPParams &http_params,
-										const char *proto_host_port,
-										optional_ptr<HTTPLogger> logger) {
-	auto client = make_uniq<HTTPLibClient>(http_params.Cast<HTTPFSParams>(), proto_host_port, logger);
+unique_ptr<HTTPClient> HTTPFSUtil::InitializeClient(HTTPParams &http_params,
+										const string &proto_host_port) {
+	auto client = make_uniq<HTTPLibClient>(http_params.Cast<HTTPFSParams>(), proto_host_port);
 	return client;
 }
 

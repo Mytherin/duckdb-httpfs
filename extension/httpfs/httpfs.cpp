@@ -33,6 +33,14 @@ void HTTPParams::Initialize(DatabaseInstance &db) {
 	http_proxy_password = db.config.options.http_proxy_password;
 }
 
+void HTTPParams::Initialize(ClientContext &context) {
+	Initialize(*context.db);
+	auto &client_config = ClientConfig::GetConfig(context);
+	if (client_config.enable_http_logging) {
+		logger = context.client_data->http_logger.get();
+	}
+}
+
 HTTPFSParams HTTPFSParams::ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info) {
 	HTTPFSParams result;
 
@@ -58,8 +66,19 @@ HTTPFSParams HTTPFSParams::ReadFrom(optional_ptr<FileOpener> opener, optional_pt
 	// HTTP Secret lookups
 	KeyValueSecretReader settings_reader(*opener, info, "http");
 
+	auto client_context = FileOpener::TryGetClientContext(opener);
+	if (client_context) {
+		result.Initialize(*client_context);
+	} else {
+		auto db = FileOpener::TryGetDatabase(opener);
+		if (db) {
+			result.Initialize(*db);
+		}
+	}
+
+
 	string proxy_setting;
-	if (settings_reader.TryGetSecretKeyOrSetting<string>("http_proxy", "http_proxy", proxy_setting) &&
+	if (settings_reader.TryGetSecretKey<string>("http_proxy", proxy_setting) &&
 	    !proxy_setting.empty()) {
 		idx_t port;
 		string host;
@@ -67,9 +86,9 @@ HTTPFSParams HTTPFSParams::ReadFrom(optional_ptr<FileOpener> opener, optional_pt
 		result.http_proxy = host;
 		result.http_proxy_port = port;
 	}
-	settings_reader.TryGetSecretKeyOrSetting<string>("http_proxy_username", "http_proxy_username",
+	settings_reader.TryGetSecretKey<string>("http_proxy_username",
 	                                                 result.http_proxy_username);
-	settings_reader.TryGetSecretKeyOrSetting<string>("http_proxy_password", "http_proxy_password",
+	settings_reader.TryGetSecretKey<string>("http_proxy_password",
 	                                                 result.http_proxy_password);
 	settings_reader.TryGetSecretKey<string>("bearer_token", result.bearer_token);
 
@@ -174,7 +193,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
 	string path, proto_host_port;
 	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		auto client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh);
+		auto client = HTTPFSUtil::InitializeClient(hfh.http_params, proto_host_port);
 
 		PostRequestInfo post_request(path, header_map, hfh.http_params, hfh.state.get(), const_data_ptr_cast(buffer_in), buffer_in_len);
 		auto result = client->Post(post_request);
@@ -186,16 +205,6 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
 	return RunRequestWithRetry(request, url, "POST", hfh.http_params);
 }
 
-unique_ptr<HTTPClient> HTTPFileSystem::GetClient(const HTTPParams &http_params,
-                                                                     const char *proto_host_port,
-                                                                     optional_ptr<HTTPFileHandle> hfh) {
-	optional_ptr<HTTPLogger> logger;
-	if (hfh) {
-		logger = hfh->http_logger.get();
-	}
-	return HTTPFSUtil::InitializeClient(http_params, proto_host_port, logger);
-}
-
 unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                        char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
@@ -203,7 +212,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string u
 	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		auto client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh);
+		auto client = HTTPFSUtil::InitializeClient(hfh.http_params, proto_host_port);
 
 		PutRequestInfo put_request(path, header_map, hfh.http_params, hfh.state.get(), (const_data_ptr_t) buffer_in, buffer_in_len, "application/octet-stream");
 		return client->Put(put_request);
@@ -225,7 +234,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 
 	// Refresh the client on retries
 	std::function<void(void)> on_retry(
-	    [&]() { http_client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh); });
+	    [&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, proto_host_port.c_str()); });
 
 	auto response = RunRequestWithRetry(request, url, "HEAD", hfh.http_params, on_retry);
 	hfh.StoreClient(std::move(http_client));
@@ -244,7 +253,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 
 	// Refresh the client on retries
 	std::function<void(void)> on_retry(
-		[&]() { http_client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh); });
+		[&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, proto_host_port.c_str()); });
 
 	auto response = RunRequestWithRetry(request, url, "DELETE", hfh.http_params, on_retry);
 	hfh.StoreClient(std::move(http_client));
@@ -301,7 +310,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 	});
 
 	std::function<void(void)> on_retry(
-	    [&]() { http_client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh); });
+	    [&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, proto_host_port.c_str()); });
 
 	auto response = RunRequestWithRetry(request, url, "GET", hfh.http_params, on_retry);
 	hfh.StoreClient(std::move(http_client));
@@ -368,7 +377,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 	});
 
 	std::function<void(void)> on_retry(
-	    [&]() { http_client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh); });
+	    [&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, proto_host_port.c_str()); });
 
 	auto response = RunRequestWithRetry(request, url, "GET Range", hfh.http_params, on_retry);
 	hfh.StoreClient(std::move(http_client));
@@ -388,8 +397,8 @@ void TimestampToTimeT(timestamp_t timestamp, time_t &result) {
 	result = mktime(&tm);
 }
 
-HTTPFileHandle::HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, const HTTPFSParams &http_params)
-    : FileHandle(fs, file.path, flags), http_params(http_params), flags(flags), length(0), buffer_available(0),
+HTTPFileHandle::HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, HTTPFSParams http_params_p)
+    : FileHandle(fs, file.path, flags), http_params(std::move(http_params_p)), flags(flags), length(0), buffer_available(0),
       buffer_idx(0), file_offset(0), buffer_start(0), buffer_end(0) {
 	// check if the handle has extended properties that can be set directly in the handle
 	// if we have these properties we don't need to do a head request to obtain them later
@@ -434,12 +443,7 @@ unique_ptr<HTTPFileHandle> HTTPFileSystem::CreateHandle(const OpenFileInfo &file
 		}
 	}
 
-	auto result = duckdb::make_uniq<HTTPFileHandle>(*this, file, flags, params);
-	auto client_context = FileOpener::TryGetClientContext(opener);
-	if (client_context && ClientConfig::GetConfig(*client_context).enable_http_logging) {
-		result->http_logger = client_context->client_data->http_logger.get();
-	}
-	return result;
+	return duckdb::make_uniq<HTTPFileHandle>(*this, file, flags, params);
 }
 
 unique_ptr<FileHandle> HTTPFileSystem::OpenFileExtended(const OpenFileInfo &file, FileOpenFlags flags,
@@ -728,11 +732,6 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 		state = make_shared_ptr<HTTPState>();
 	}
 
-	auto client_context = FileOpener::TryGetClientContext(opener);
-	if (client_context && ClientConfig::GetConfig(*client_context).enable_http_logging) {
-		http_logger = client_context->client_data->http_logger.get();
-	}
-
 	auto current_cache = TryGetMetadataCache(opener, hfs);
 
 	bool should_write_cache = false;
@@ -793,12 +792,7 @@ unique_ptr<HTTPClient> HTTPFileHandle::CreateClient(optional_ptr<ClientContext> 
 	// Create a new client
 	string path_out, proto_host_port;
 	HTTPFSUtil::DecomposeURL(path, path_out, proto_host_port);
-	auto http_client = HTTPFileSystem::GetClient(this->http_params, proto_host_port.c_str(), this);
-	if (context && ClientConfig::GetConfig(*context).enable_http_logging) {
-		http_logger = context->client_data->http_logger.get();
-		http_client->SetLogger(*http_logger);
-	}
-	return http_client;
+	return HTTPFSUtil::InitializeClient(http_params, proto_host_port);
 }
 
 void HTTPFileHandle::StoreClient(unique_ptr<HTTPClient> client) {

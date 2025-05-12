@@ -57,57 +57,50 @@ struct HTTPFSParams : public HTTPParams {
 	static HTTPFSParams ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info);
 };
 
-struct GetRequestInfo {
-	GetRequestInfo(const string &path, const HTTPHeaders &headers,
-	std::function<bool(const HTTPResponse &response)> response_handler, std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler, optional_ptr<HTTPState> state) :
-		path(path), headers(headers), content_handler(content_handler), response_handler(response_handler), state(state) {}
+struct BaseRequest {
+	BaseRequest(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
+		path(path), headers(headers), params(params), state(state) {}
 
 	const string &path;
 	const HTTPHeaders &headers;
-	std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler;
-	std::function<bool(const HTTPResponse &response)> response_handler;
+	const HTTPParams &params;
 	optional_ptr<HTTPState> state;
 };
 
-struct PutRequestInfo {
-	PutRequestInfo(const string &path, const HTTPHeaders &headers, const_data_ptr_t buffer_in, idx_t buffer_in_len, const string &content_type, optional_ptr<HTTPState> state) :
-		path(path), headers(headers), buffer_in(buffer_in), buffer_in_len(buffer_in_len), content_type(content_type), state(state) {}
+struct GetRequestInfo : public BaseRequest{
+	GetRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state,
+	std::function<bool(const HTTPResponse &response)> response_handler, std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler) :
+		BaseRequest(path, headers, params, state), content_handler(content_handler), response_handler(response_handler){}
 
-	const string &path;
-	const HTTPHeaders &headers;
+	std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler;
+	std::function<bool(const HTTPResponse &response)> response_handler;
+};
+
+struct PutRequestInfo : public BaseRequest {
+	PutRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state, const_data_ptr_t buffer_in, idx_t buffer_in_len, const string &content_type) :
+		BaseRequest(path, headers, params, state), buffer_in(buffer_in), buffer_in_len(buffer_in_len), content_type(content_type) {}
+
 	const_data_ptr_t buffer_in;
 	idx_t buffer_in_len;
 	const string &content_type;
-	optional_ptr<HTTPState> state;
 };
 
-struct HeadRequestInfo {
-	HeadRequestInfo(const string &path, const HTTPHeaders &headers, optional_ptr<HTTPState> state) :
-		path(path), headers(headers), state(state) {}
-
-	const string &path;
-	const HTTPHeaders &headers;
-	optional_ptr<HTTPState> state;
+struct HeadRequestInfo : public BaseRequest {
+	HeadRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
+		BaseRequest(path, headers, params, state) {}
 };
 
-struct DeleteRequestInfo {
-	DeleteRequestInfo(const string &path, const HTTPHeaders &headers, optional_ptr<HTTPState> state) :
-		path(path), headers(headers), state(state) {}
-
-	const string &path;
-	const HTTPHeaders &headers;
-	optional_ptr<HTTPState> state;
+struct DeleteRequestInfo : public BaseRequest {
+	DeleteRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
+		BaseRequest(path, headers, params, state) {}
 };
 
-struct PostRequestInfo {
-	PostRequestInfo(const string &path, const HTTPHeaders &headers, const_data_ptr_t buffer_in, idx_t buffer_in_len, optional_ptr<HTTPState> state) :
-		path(path), headers(headers), buffer_in(buffer_in), buffer_in_len(buffer_in_len), state(state) {}
+struct PostRequestInfo : public BaseRequest {
+	PostRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state, const_data_ptr_t buffer_in, idx_t buffer_in_len) :
+		BaseRequest(path, headers, params, state), buffer_in(buffer_in), buffer_in_len(buffer_in_len) {}
 
-	const string &path;
-	const HTTPHeaders &headers;
 	const_data_ptr_t buffer_in;
 	idx_t buffer_in_len;
-	optional_ptr<HTTPState> state;
 	duckdb::unique_ptr<char[]> buffer_out;
 	idx_t buffer_out_len = 0;
 };

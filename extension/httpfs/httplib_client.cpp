@@ -7,9 +7,12 @@
 
 namespace duckdb {
 
-duckdb::unique_ptr<duckdb_httplib_openssl::Headers> TransformHeaders(const HTTPHeaders &header_map) {
+duckdb::unique_ptr<duckdb_httplib_openssl::Headers> TransformHeaders(const HTTPHeaders &header_map, const HTTPParams &params) {
 	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
 	for(auto &entry : header_map) {
+		headers->insert(entry);
+	}
+	for (auto &entry : params.extra_headers) {
 		headers->insert(entry);
 	}
 	return headers;
@@ -75,7 +78,7 @@ public:
 		if (info.state) {
 			info.state->get_count++;
 		}
-        auto headers = TransformHeaders(info.headers);
+        auto headers = TransformHeaders(info.headers, info.params);
         return TransformResult(client->Get(info.path.c_str(), *headers,
 		    [&](const duckdb_httplib_openssl::Response &response) {
 		    	auto http_response = TransformResponse(response);
@@ -90,7 +93,7 @@ public:
             info.state->put_count++;
             info.state->total_bytes_sent += info.buffer_in_len;
         }
-        auto headers = TransformHeaders(info.headers);
+        auto headers = TransformHeaders(info.headers, info.params);
         return TransformResult(client->Put(info.path.c_str(), *headers, const_char_ptr_cast(info.buffer_in), info.buffer_in_len, info.content_type));
 	}
 
@@ -98,7 +101,7 @@ public:
         if (info.state) {
             info.state->head_count++;
         }
-        auto headers = TransformHeaders(info.headers);
+        auto headers = TransformHeaders(info.headers, info.params);
         return TransformResult(client->Head(info.path.c_str(), *headers));
 	}
 
@@ -106,7 +109,7 @@ public:
         if (info.state) {
             info.state->delete_count++;
         }
-        auto headers = TransformHeaders(info.headers);
+        auto headers = TransformHeaders(info.headers, info.params);
         return TransformResult(client->Delete(info.path.c_str(), *headers));
 	}
 
@@ -120,7 +123,7 @@ public:
         duckdb_httplib_openssl::Request req;
         req.method = "POST";
         req.path = info.path;
-        req.headers = *TransformHeaders(info.headers);
+        req.headers = *TransformHeaders(info.headers, info.params);
         req.headers.emplace("Content-Type", "application/octet-stream");
         req.content_receiver = [&](const char *data, size_t data_length, uint64_t /*offset*/,
                                    uint64_t /*total_length*/) {

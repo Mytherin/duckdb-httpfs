@@ -51,14 +51,13 @@ unique_ptr<HTTPClient> HFFileHandle::CreateClient(optional_ptr<ClientContext> cl
 string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_params, string &next_page_url,
                                             optional_ptr<HTTPState> state) {
 	HTTPHeaders header_map;
-	InitializeHeaders(header_map, http_params);
 	string link_header_result;
 
 	auto client = HTTPFileSystem::GetClient(http_params, url.endpoint.c_str(), nullptr);
 	std::stringstream response;
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		GetRequestInfo get_request(next_page_url, header_map,
+		GetRequestInfo get_request(next_page_url, header_map, http_params, state,
 		    [&](const HTTPResponse &response) {
 			    if (static_cast<int>(response.status) >= 400) {
 				    throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", next_page_url, response.status);
@@ -74,7 +73,7 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_p
 			    }
 			    response << string(const_char_ptr_cast(data), data_length);
 			    return true;
-		    }, state);
+		    });
 		return client->Get(get_request);
 	});
 

@@ -97,7 +97,6 @@ public:
 	GetClient(const HTTPParams &http_params, const char *proto_host_port, optional_ptr<HTTPFileHandle> hfs);
 	static void ParseUrl(string &url, string &path_out, string &proto_host_port_out);
 	static bool TryParseLastModifiedTime(const string &timestamp, time_t &result);
-	static void InitializeHeaders(HTTPHeaders &header_map, const HTTPParams &http_params);
 
 	vector<OpenFileInfo> Glob(const string &path, FileOpener *opener = nullptr) override {
 		return {path}; // FIXME

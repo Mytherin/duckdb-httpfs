@@ -21,12 +21,6 @@
 
 namespace duckdb {
 
-void HTTPFileSystem::InitializeHeaders(HTTPHeaders &header_map, const HTTPParams &http_params) {
-	for (auto &entry : http_params.extra_headers) {
-		header_map.Insert(entry.first, entry.second);
-	}
-}
-
 void HTTPParams::Initialize(DatabaseInstance &db) {
 	if (!db.config.options.http_proxy.empty()) {
 		idx_t port;
@@ -179,11 +173,10 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	InitializeHeaders(header_map, hfh.http_params);
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		auto client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh);
 
-		PostRequestInfo post_request(path, header_map, const_data_ptr_cast(buffer_in), buffer_in_len, hfh.state.get());
+		PostRequestInfo post_request(path, header_map, hfh.http_params, hfh.state.get(), const_data_ptr_cast(buffer_in), buffer_in_len);
 		auto result = client->Post(post_request);
 
 		buffer_out = std::move(post_request.buffer_out);
@@ -208,12 +201,11 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string u
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	InitializeHeaders(header_map, hfh.http_params);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		auto client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh);
 
-		PutRequestInfo put_request(path, header_map, (const_data_ptr_t) buffer_in, buffer_in_len, "application/octet-stream", hfh.state.get());
+		PutRequestInfo put_request(path, header_map, hfh.http_params, hfh.state.get(), (const_data_ptr_t) buffer_in, buffer_in_len, "application/octet-stream");
 		return client->Put(put_request);
 	});
 
@@ -224,11 +216,10 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	InitializeHeaders(header_map, hfh.http_params);
 	auto http_client = hfh.GetClient(nullptr);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		HeadRequestInfo head_request(path, header_map, hfh.state.get());
+		HeadRequestInfo head_request(path, header_map, hfh.http_params, hfh.state.get());
 		return http_client->Head(head_request);
 	});
 
@@ -244,11 +235,10 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	InitializeHeaders(header_map, hfh.http_params);
 	auto http_client = hfh.GetClient(nullptr);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		DeleteRequestInfo delete_request(path, header_map, hfh.state.get());
+		DeleteRequestInfo delete_request(path, header_map, hfh.http_params, hfh.state.get());
 		return http_client->Delete(delete_request);
 	});
 
@@ -265,14 +255,13 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	InitializeHeaders(header_map, hfh.http_params);
 
 	D_ASSERT(hfh.cached_file_handle);
 
 	auto http_client = hfh.GetClient(nullptr);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		GetRequestInfo get_request(path, header_map,
+		GetRequestInfo get_request(path, header_map, hfh.http_params, hfh.state.get(),
 		    [&](const HTTPResponse &response) {
 			    if (static_cast<int>(response.status) >= 400) {
 				    string error = "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + ")";
@@ -307,7 +296,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 				    hfh.length += data_length;
 			    }
 			    return true;
-		    }, hfh.state.get());
+		    });
 		return http_client->Get(get_request);
 	});
 
@@ -324,7 +313,6 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	ParseUrl(url, path, proto_host_port);
-	InitializeHeaders(header_map, hfh.http_params);
 
 	// send the Range header to read only subset of file
 	string range_expr = "bytes=" + to_string(file_offset) + "-" + to_string(file_offset + buffer_out_len - 1);
@@ -335,7 +323,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 	idx_t out_offset = 0;
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		GetRequestInfo get_request(path, header_map,
+		GetRequestInfo get_request(path, header_map, hfh.http_params, hfh.state.get(),
 		    [&](const HTTPResponse &response) {
 			    if (static_cast<int>(response.status) >= 400) {
 				    string error = "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + ")";
@@ -375,7 +363,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 				    out_offset += data_length;
 			    }
 			    return true;
-		    }, hfh.state.get());
+		    });
 		return http_client->Get(get_request);
 	});
 

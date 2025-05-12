@@ -999,7 +999,7 @@ string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthP
 	auto client = S3FileSystem::GetClient(http_params, (parsed_url.http_proto + parsed_url.host).c_str(),
 	                                      nullptr); // Get requests use fresh connection
 	std::stringstream response;
-	GetRequestInfo get_request(listobjectv2_url, header_map,
+	GetRequestInfo get_request(listobjectv2_url, header_map, http_params, state,
 	    [&](const HTTPResponse &response) {
 		    if (static_cast<int>(response.status) >= 400) {
 			    throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", listobjectv2_url, response.status);
@@ -1012,7 +1012,7 @@ string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthP
 		    }
 		    response << string(const_char_ptr_cast(data), data_length);
 		    return true;
-	    }, state);
+	    });
 	auto result = client->Get(get_request);
 	if (result->HasRequestError()) {
 		throw IOException("%s error for HTTP GET to '%s'", result->GetRequestError(), listobjectv2_url);

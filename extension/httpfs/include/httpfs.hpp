@@ -95,7 +95,6 @@ class HTTPFileSystem : public FileSystem {
 public:
 	static duckdb::unique_ptr<HTTPClient>
 	GetClient(const HTTPParams &http_params, const char *proto_host_port, optional_ptr<HTTPFileHandle> hfs);
-	static void ParseUrl(string &url, string &path_out, string &proto_host_port_out);
 	static bool TryParseLastModifiedTime(const string &timestamp, time_t &result);
 
 	vector<OpenFileInfo> Glob(const string &path, FileOpener *opener = nullptr) override {

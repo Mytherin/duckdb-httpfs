@@ -102,7 +102,7 @@ void HTTPClientCache::StoreClient(unique_ptr<HTTPClient> client) {
 	clients.push_back(std::move(client));
 }
 
-void HTTPFileSystem::ParseUrl(string &url, string &path_out, string &proto_host_port_out) {
+void HTTPFSUtil::DecomposeURL(const string &url, string &path_out, string &proto_host_port_out) {
 	if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
 		throw IOException("URL needs to start with http:// or https://");
 	}
@@ -172,7 +172,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
                                                         char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
-	ParseUrl(url, path, proto_host_port);
+	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		auto client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh);
 
@@ -200,7 +200,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string u
                                                        char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
-	ParseUrl(url, path, proto_host_port);
+	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		auto client = GetClient(hfh.http_params, proto_host_port.c_str(), &hfh);
@@ -215,7 +215,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string u
 unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
-	ParseUrl(url, path, proto_host_port);
+	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
 	auto http_client = hfh.GetClient(nullptr);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
@@ -234,7 +234,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
-	ParseUrl(url, path, proto_host_port);
+	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
 	auto http_client = hfh.GetClient(nullptr);
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
@@ -254,7 +254,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
-	ParseUrl(url, path, proto_host_port);
+	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
 
 	D_ASSERT(hfh.cached_file_handle);
 
@@ -312,7 +312,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
                                                             idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
-	ParseUrl(url, path, proto_host_port);
+	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
 
 	// send the Range header to read only subset of file
 	string range_expr = "bytes=" + to_string(file_offset) + "-" + to_string(file_offset + buffer_out_len - 1);
@@ -792,7 +792,7 @@ unique_ptr<HTTPClient> HTTPFileHandle::GetClient(optional_ptr<ClientContext> con
 unique_ptr<HTTPClient> HTTPFileHandle::CreateClient(optional_ptr<ClientContext> context) {
 	// Create a new client
 	string path_out, proto_host_port;
-	HTTPFileSystem::ParseUrl(path, path_out, proto_host_port);
+	HTTPFSUtil::DecomposeURL(path, path_out, proto_host_port);
 	auto http_client = HTTPFileSystem::GetClient(this->http_params, proto_host_port.c_str(), this);
 	if (context && ClientConfig::GetConfig(*context).enable_http_logging) {
 		http_logger = context->client_data->http_logger.get();

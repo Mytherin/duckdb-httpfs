@@ -125,6 +125,8 @@ public:
 											optional_ptr<HTTPLogger> logger);
 
 	static unordered_map<string, string> ParseGetParameters(const string &text);
+
+	static void DecomposeURL(const string &url, string &path_out, string &proto_host_port_out);
 };
 
 }

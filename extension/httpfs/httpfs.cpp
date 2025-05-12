@@ -19,31 +19,12 @@
 #include <string>
 #include <thread>
 
-#define CPPHTTPLIB_OPENSSL_SUPPORT
-#include "httplib.hpp"
-
 namespace duckdb {
 
 void HTTPFileSystem::InitializeHeaders(HTTPHeaders &header_map, const HTTPParams &http_params) {
 	for (auto &entry : http_params.extra_headers) {
 		header_map.Insert(entry.first, entry.second);
 	}
-}
-
-duckdb::unique_ptr<duckdb_httplib_openssl::Headers> TransformHeaders(const HTTPHeaders &header_map) {
-	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
-	for(auto &entry : header_map) {
-		headers->insert(entry);
-	}
-	return headers;
-}
-
-duckdb::unique_ptr<duckdb_httplib_openssl::Headers> HTTPFileSystem::TransformHeaders(const HTTPHeaders &header_map) {
-	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
-	for (auto &entry : header_map) {
-		headers->insert(entry);
-	}
-	return headers;
 }
 
 HTTPParams HTTPParams::ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info) {
@@ -132,29 +113,6 @@ void HTTPFileSystem::ParseUrl(string &url, string &path_out, string &proto_host_
 	}
 }
 
-// FIXME: this is copied form http_util.cpp
-unique_ptr<HTTPResponse> TransformResponse(const duckdb_httplib_openssl::Response &response) {
-	auto status_code = HTTPUtil::ToStatusCode(response.status);
-	auto result = make_uniq<HTTPResponse>(status_code);
-	result->body = response.body;
-	result->reason = response.reason;
-	for (auto &entry : response.headers) {
-		result->headers.Insert(entry.first, entry.second);
-	}
-	return result;
-}
-
-unique_ptr<HTTPResponse> HTTPFileSystem::TransformResult(duckdb_httplib_openssl::Result &&res) {
-	if (res.error() == duckdb_httplib_openssl::Error::Success) {
-		auto &response = res.value();
-		return TransformResponse(response);
-	} else {
-		auto result = make_uniq<HTTPResponse>(HTTPStatusCode::INVALID);
-		result->request_error = to_string(res.error());
-		return result;
-	}
-}
-
 // Retry the request performed by fun using the exponential backoff strategy defined in params. Before retry, the
 // retry callback is called
 duckdb::unique_ptr<HTTPResponse>
@@ -168,6 +126,7 @@ HTTPFileSystem::RunRequestWithRetry(const std::function<unique_ptr<HTTPResponse>
 
 		try {
 			response = request();
+			response->url = url;
 		} catch (IOException &e) {
 			caught_e = std::current_exception();
 		} catch (HTTPException &e) {
@@ -222,115 +181,6 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
 	return RunRequestWithRetry(request, url, "POST", hfh.http_params);
 }
 
-class HTTPLibClient : public HTTPClient {
-public:
-	HTTPLibClient(const HTTPParams &http_params, const char *proto_host_port, optional_ptr<HTTPLogger> logger) {
-		client = make_uniq<duckdb_httplib_openssl::Client>(proto_host_port);
-		client->set_follow_location(true);
-		client->set_keep_alive(http_params.keep_alive);
-		if (!http_params.ca_cert_file.empty()) {
-			client->set_ca_cert_path(http_params.ca_cert_file.c_str());
-		}
-		client->enable_server_certificate_verification(http_params.enable_server_cert_verification);
-		client->set_write_timeout(http_params.timeout, http_params.timeout_usec);
-		client->set_read_timeout(http_params.timeout, http_params.timeout_usec);
-		client->set_connection_timeout(http_params.timeout, http_params.timeout_usec);
-		client->set_decompress(false);
-		if (logger) {
-			SetLogger(*logger);
-		}
-		if (!http_params.bearer_token.empty()) {
-			client->set_bearer_token_auth(http_params.bearer_token.c_str());
-		}
-
-		if (!http_params.http_proxy.empty()) {
-			client->set_proxy(http_params.http_proxy, http_params.http_proxy_port);
-
-			if (!http_params.http_proxy_username.empty()) {
-				client->set_proxy_basic_auth(http_params.http_proxy_username, http_params.http_proxy_password);
-			}
-		}
-	}
-
-	void SetLogger(HTTPLogger &logger) override {
-		client->set_logger(
-			logger.GetLogger<duckdb_httplib_openssl::Request, duckdb_httplib_openssl::Response>());
-	}
-	unique_ptr<HTTPResponse> Get(GetRequestInfo &info) override {
-		if (info.state) {
-			info.state->get_count++;
-		}
-        auto headers = TransformHeaders(info.headers);
-        return HTTPFileSystem::TransformResult(client->Get(info.path.c_str(), *headers,
-		    [&](const duckdb_httplib_openssl::Response &response) {
-		    	auto http_response = TransformResponse(response);
-		    	return info.response_handler(*http_response);
-		    },
-            [&](const char *data, size_t data_length) {
-				return info.content_handler(const_data_ptr_cast(data), data_length);
-            }));
-	}
-	unique_ptr<HTTPResponse> Put(PutRequestInfo &info) override {
-        if (info.state) {
-            info.state->put_count++;
-            info.state->total_bytes_sent += info.buffer_in_len;
-        }
-        auto headers = TransformHeaders(info.headers);
-        return HTTPFileSystem::TransformResult(client->Put(info.path.c_str(), *headers, const_char_ptr_cast(info.buffer_in), info.buffer_in_len, info.content_type));
-	}
-
-	unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) override {
-        if (info.state) {
-            info.state->head_count++;
-        }
-        auto headers = TransformHeaders(info.headers);
-        return HTTPFileSystem::TransformResult(client->Head(info.path.c_str(), *headers));
-	}
-
-	unique_ptr<HTTPResponse> Delete(DeleteRequestInfo &info) override {
-        if (info.state) {
-            info.state->delete_count++;
-        }
-        auto headers = TransformHeaders(info.headers);
-        return HTTPFileSystem::TransformResult(client->Delete(info.path.c_str(), *headers));
-	}
-
-	unique_ptr<HTTPResponse> Post(PostRequestInfo &info) override {
-        if (info.state) {
-            info.state->post_count++;
-            info.state->total_bytes_sent += info.buffer_in_len;
-        }
-		idx_t out_offset = 0;
-        // We use a custom Request method here, because there is no Post call with a contentreceiver in httplib
-        duckdb_httplib_openssl::Request req;
-        req.method = "POST";
-        req.path = info.path;
-        req.headers = *TransformHeaders(info.headers);
-        req.headers.emplace("Content-Type", "application/octet-stream");
-        req.content_receiver = [&](const char *data, size_t data_length, uint64_t /*offset*/,
-                                   uint64_t /*total_length*/) {
-            if (info.state) {
-                info.state->total_bytes_received += data_length;
-            }
-            if (out_offset + data_length > info.buffer_out_len) {
-                // Buffer too small, increase its size by at least 2x to fit the new value
-                auto new_size = MaxValue<idx_t>(out_offset + data_length, info.buffer_out_len * 2);
-                auto tmp = duckdb::unique_ptr<char[]> {new char[new_size]};
-                memcpy(tmp.get(), info.buffer_out.get(), info.buffer_out_len);
-                info.buffer_out = std::move(tmp);
-                info.buffer_out_len = new_size;
-            }
-            memcpy(info.buffer_out.get() + out_offset, data, data_length);
-            out_offset += data_length;
-            return true;
-        };
-        req.body.assign(const_char_ptr_cast(info.buffer_in), info.buffer_in_len);
-        return HTTPFileSystem::TransformResult(client->send(req));
-	}
-
-	unique_ptr<duckdb_httplib_openssl::Client> client;
-};
-
 unique_ptr<HTTPClient> HTTPFileSystem::GetClient(const HTTPParams &http_params,
                                                                      const char *proto_host_port,
                                                                      optional_ptr<HTTPFileHandle> hfh) {
@@ -338,8 +188,7 @@ unique_ptr<HTTPClient> HTTPFileSystem::GetClient(const HTTPParams &http_params,
 	if (hfh) {
 		logger = hfh->http_logger.get();
 	}
-	auto client = make_uniq<HTTPLibClient>(http_params, proto_host_port, logger);
-	return client;
+	return HTTPClient::InitializeClient(http_params, proto_host_port, logger);
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,

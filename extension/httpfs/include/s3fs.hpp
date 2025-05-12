@@ -189,8 +189,6 @@ public:
 	                                               string http_params = "") override;
 	duckdb::unique_ptr<HTTPResponse> DeleteRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map) override;
 
-	static void Verify();
-
 	bool CanHandleFile(const string &fpath) override;
 	bool OnDiskFile(FileHandle &handle) override {
 		return false;

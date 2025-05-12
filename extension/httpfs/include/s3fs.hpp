@@ -12,9 +12,6 @@
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "httpfs.hpp"
 
-#define CPPHTTPLIB_OPENSSL_SUPPORT
-#include "httplib.hpp"
-
 #include <condition_variable>
 #include <exception>
 #include <iostream>
@@ -237,9 +234,6 @@ protected:
 
 	void FlushBuffer(S3FileHandle &handle, shared_ptr<S3WriteBuffer> write_buffer);
 	string GetPayloadHash(char *buffer, idx_t buffer_len);
-
-	// helper for ReadQueryParams
-	void GetQueryParam(const string &key, string &param, CPPHTTPLIB_NAMESPACE::Params &query_params);
 };
 
 // Helper class to do s3 ListObjectV2 api call https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html

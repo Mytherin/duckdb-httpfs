@@ -108,6 +108,8 @@ public:
 	static unique_ptr<HTTPClient> InitializeClient(const HTTPParams &http_params,
 											const char *proto_host_port,
 											optional_ptr<HTTPLogger> logger);
+
+	static unordered_map<string, string> ParseGetParameters(const string &text);
 };
 
 }

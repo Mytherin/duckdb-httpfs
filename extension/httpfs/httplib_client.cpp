@@ -154,4 +154,15 @@ unique_ptr<HTTPClient> HTTPClient::InitializeClient(const HTTPParams &http_param
 	return client;
 }
 
+unordered_map<string, string> HTTPClient::ParseGetParameters(const string &text) {
+	duckdb_httplib_openssl::Params query_params;
+	duckdb_httplib_openssl::detail::parse_query_text(text, query_params);
+
+	unordered_map<string, string> result;
+	for(auto &entry : query_params) {
+		result.emplace(std::move(entry.first), std::move(entry.second));
+	}
+	return result;
+}
+
 }

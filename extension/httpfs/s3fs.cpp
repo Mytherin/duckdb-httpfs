@@ -503,7 +503,7 @@ shared_ptr<S3WriteBuffer> S3FileHandle::GetBuffer(uint16_t write_buffer_idx) {
 	return new_write_buffer;
 }
 
-void S3FileSystem::GetQueryParam(const string &key, string &param, duckdb_httplib_openssl::Params &query_params) {
+void GetQueryParam(const string &key, string &param, unordered_map<string, string> &query_params) {
 	auto found_param = query_params.find(key);
 	if (found_param != query_params.end()) {
 		param = found_param->second;
@@ -516,8 +516,7 @@ void S3FileSystem::ReadQueryParams(const string &url_query_param, S3AuthParams &
 		return;
 	}
 
-	duckdb_httplib_openssl::Params query_params;
-	duckdb_httplib_openssl::detail::parse_query_text(url_query_param, query_params);
+	auto query_params = HTTPClient::ParseGetParameters(url_query_param);
 
 	GetQueryParam("s3_region", params.region, query_params);
 	GetQueryParam("s3_access_key_id", params.access_key_id, query_params);

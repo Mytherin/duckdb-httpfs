@@ -4,8 +4,47 @@
 #include "duckdb/common/common.hpp"
 #include <stdio.h>
 
-#define CPPHTTPLIB_OPENSSL_SUPPORT
-#include "httplib.hpp"
+// FIXME: this is copied from httplib.hpp
+#ifdef _WIN32
+#include <wincrypt.h>
+
+// these are defined in wincrypt.h and it breaks compilation if BoringSSL is
+// used
+#undef X509_NAME
+#undef X509_CERT_PAIR
+#undef X509_EXTENSIONS
+#undef PKCS7_SIGNER_INFO
+
+#ifdef _MSC_VER
+#pragma comment(lib, "crypt32.lib")
+#endif
+#elif defined(CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN) && defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
+#endif // TARGET_OS_OSX
+#endif // _WIN32
+
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/ssl.h>
+#include <openssl/x509v3.h>
+#include <openssl/rand.h>
+
+#if defined(_WIN32) && defined(OPENSSL_USE_APPLINK)
+#include <openssl/applink.c>
+#endif
+
+#include <iostream>
+#include <sstream>
+
+// Disabled OpenSSL version check for CI
+//#if OPENSSL_VERSION_NUMBER < 0x1010100fL
+//#error Sorry, OpenSSL versions prior to 1.1.1 are not supported
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+#define SSL_get1_peer_certificate SSL_get_peer_certificate
+#endif
 
 namespace duckdb {
 

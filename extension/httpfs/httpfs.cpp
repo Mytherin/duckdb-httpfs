@@ -225,7 +225,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
-	auto http_client = hfh.GetClient(nullptr);
+	auto http_client = hfh.GetClient();
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		HeadRequestInfo head_request(path, header_map, hfh.http_params, hfh.state.get());
@@ -244,7 +244,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	string path, proto_host_port;
 	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
-	auto http_client = hfh.GetClient(nullptr);
+	auto http_client = hfh.GetClient();
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		DeleteRequestInfo delete_request(path, header_map, hfh.http_params, hfh.state.get());
@@ -267,7 +267,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 
 	D_ASSERT(hfh.cached_file_handle);
 
-	auto http_client = hfh.GetClient(nullptr);
+	auto http_client = hfh.GetClient();
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
 		GetRequestInfo get_request(path, header_map, hfh.http_params, hfh.state.get(),
@@ -327,7 +327,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 	string range_expr = "bytes=" + to_string(file_offset) + "-" + to_string(file_offset + buffer_out_len - 1);
 	header_map.Insert("Range", range_expr);
 
-	auto http_client = hfh.GetClient(nullptr);
+	auto http_client = hfh.GetClient();
 
 	idx_t out_offset = 0;
 
@@ -777,7 +777,7 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 	}
 }
 
-unique_ptr<HTTPClient> HTTPFileHandle::GetClient(optional_ptr<ClientContext> context) {
+unique_ptr<HTTPClient> HTTPFileHandle::GetClient() {
 	// Try to fetch a cached client
 	auto cached_client = client_cache.GetClient();
 	if (cached_client) {
@@ -785,10 +785,10 @@ unique_ptr<HTTPClient> HTTPFileHandle::GetClient(optional_ptr<ClientContext> con
 	}
 
 	// Create a new client
-	return CreateClient(context);
+	return CreateClient();
 }
 
-unique_ptr<HTTPClient> HTTPFileHandle::CreateClient(optional_ptr<ClientContext> context) {
+unique_ptr<HTTPClient> HTTPFileHandle::CreateClient() {
 	// Create a new client
 	string path_out, proto_host_port;
 	HTTPFSUtil::DecomposeURL(path, path_out, proto_host_port);

@@ -70,7 +70,7 @@ public:
 	void AddHeaders(HTTPHeaders &map);
 
 	// Get a Client to run requests over
-	unique_ptr<HTTPClient> GetClient(optional_ptr<ClientContext> client_context);
+	unique_ptr<HTTPClient> GetClient();
 	// Return the client for re-use
 	void StoreClient(unique_ptr<HTTPClient> client);
 
@@ -80,7 +80,7 @@ public:
 
 protected:
 	//! Create a new Client
-	virtual unique_ptr<HTTPClient> CreateClient(optional_ptr<ClientContext> client_context);
+	virtual unique_ptr<HTTPClient> CreateClient();
 	//! Perform a HEAD request to get the file info (if not yet loaded)
 	void LoadFileInfo();
 

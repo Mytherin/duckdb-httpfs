@@ -44,7 +44,7 @@ static string ParseNextUrlFromLinkHeader(const string &link_header_content) {
 
 HFFileHandle::~HFFileHandle() {};
 
-unique_ptr<HTTPClient> HFFileHandle::CreateClient(optional_ptr<ClientContext> client_context) {
+unique_ptr<HTTPClient> HFFileHandle::CreateClient() {
 	return HTTPFSUtil::InitializeClient(http_params, parsed_url.endpoint);
 }
 

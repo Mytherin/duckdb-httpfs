@@ -271,7 +271,7 @@ void S3FileHandle::Close() {
 	}
 }
 
-unique_ptr<HTTPClient> S3FileHandle::CreateClient(optional_ptr<ClientContext> client_context) {
+unique_ptr<HTTPClient> S3FileHandle::CreateClient() {
 	auto parsed_url = S3FileSystem::S3UrlParse(path, this->auth_params);
 
 	string proto_host_port = parsed_url.http_proto + parsed_url.host;

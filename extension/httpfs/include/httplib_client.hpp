@@ -60,19 +60,25 @@ struct HTTPFSParams : public HTTPParams {
 };
 
 struct BaseRequest {
-	BaseRequest(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
-		path(path), headers(headers), params(params), state(state) {}
+	BaseRequest(const string &url, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state);
+	BaseRequest(const string &endpoint, const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
+		url(path), proto_host_port(endpoint), path(path), headers(headers), params(params), state(state) {}
 
-	const string &path;
+	const string &url;
+	string path;
+	string proto_host_port;
 	const HTTPHeaders &headers;
 	const HTTPParams &params;
 	optional_ptr<HTTPState> state;
 };
 
 struct GetRequestInfo : public BaseRequest{
-	GetRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state,
+	GetRequestInfo(const string &url, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state,
 	std::function<bool(const HTTPResponse &response)> response_handler, std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler) :
-		BaseRequest(path, headers, params, state), content_handler(content_handler), response_handler(response_handler){}
+		BaseRequest(url, headers, params, state), content_handler(content_handler), response_handler(response_handler){}
+	GetRequestInfo(const string &endpoint, const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state,
+	std::function<bool(const HTTPResponse &response)> response_handler, std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler) :
+		BaseRequest(endpoint, path, headers, params, state), content_handler(content_handler), response_handler(response_handler){}
 
 	std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler;
 	std::function<bool(const HTTPResponse &response)> response_handler;
@@ -126,6 +132,8 @@ public:
 	static unordered_map<string, string> ParseGetParameters(const string &text);
 
 	static void DecomposeURL(const string &url, string &path_out, string &proto_host_port_out);
+
+	static unique_ptr<HTTPResponse> Put(PutRequestInfo &info);
 };
 
 }

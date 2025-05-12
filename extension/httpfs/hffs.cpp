@@ -57,7 +57,7 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_p
 	std::stringstream response;
 
 	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		GetRequestInfo get_request(next_page_url, header_map, http_params, state,
+		GetRequestInfo get_request(url.endpoint, next_page_url, header_map, http_params, state,
 		    [&](const HTTPResponse &response) {
 			    if (static_cast<int>(response.status) >= 400) {
 				    throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", next_page_url, response.status);

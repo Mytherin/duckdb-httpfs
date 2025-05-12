@@ -7,6 +7,28 @@
 
 namespace duckdb {
 
+BaseRequest::BaseRequest(const string &url, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
+		url(url), headers(headers), params(params), state(state) {
+	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
+}
+
+void HTTPFSUtil::DecomposeURL(const string &url, string &path_out, string &proto_host_port_out) {
+	if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
+		throw IOException("URL needs to start with http:// or https://");
+	}
+	auto slash_pos = url.find('/', 8);
+	if (slash_pos == string::npos) {
+		throw IOException("URL needs to contain a '/' after the host");
+	}
+	proto_host_port_out = url.substr(0, slash_pos);
+
+	path_out = url.substr(slash_pos);
+
+	if (path_out.empty()) {
+		throw IOException("URL needs to contain a path");
+	}
+}
+
 duckdb::unique_ptr<duckdb_httplib_openssl::Headers> TransformHeaders(const HTTPHeaders &header_map, const HTTPParams &params) {
 	auto headers = make_uniq<duckdb_httplib_openssl::Headers>();
 	for(auto &entry : header_map) {

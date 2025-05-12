@@ -1007,9 +1007,6 @@ string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthP
 		    return true;
 	    },
 	    [&](const_data_ptr_t data, idx_t data_length) {
-		    if (state) {
-			    state->total_bytes_received += data_length;
-		    }
 		    response << string(const_char_ptr_cast(data), data_length);
 		    return true;
 	    });

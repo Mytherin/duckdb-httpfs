@@ -85,6 +85,9 @@ public:
 		    	return info.response_handler(*http_response);
 		    },
             [&](const char *data, size_t data_length) {
+			    if (info.state) {
+				    info.state->total_bytes_received += data_length;
+			    }
 				return info.content_handler(const_data_ptr_cast(data), data_length);
             }));
 	}

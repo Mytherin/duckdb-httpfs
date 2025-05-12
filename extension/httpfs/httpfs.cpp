@@ -283,10 +283,6 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 			    return true;
 		    },
 		    [&](const_data_ptr_t data, idx_t data_length) {
-			    D_ASSERT(hfh.state);
-			    if (hfh.state) {
-				    hfh.state->total_bytes_received += data_length;
-			    }
 			    if (!hfh.cached_file_handle->GetCapacity()) {
 				    hfh.cached_file_handle->AllocateBuffer(data_length);
 				    hfh.length = data_length;
@@ -355,9 +351,6 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 			    return true;
 		    },
 		    [&](const_data_ptr_t data, idx_t data_length) {
-			    if (hfh.state) {
-				    hfh.state->total_bytes_received += data_length;
-			    }
 			    if (buffer_out != nullptr) {
 				    if (data_length + out_offset > buffer_out_len) {
 					    // As of v0.8.2-dev4424 we might end up here when very big files are served from servers
@@ -377,7 +370,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 	});
 
 	std::function<void(void)> on_retry(
-	    [&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, proto_host_port.c_str()); });
+	    [&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, proto_host_port); });
 
 	auto response = RunRequestWithRetry(request, url, "GET Range", hfh.http_params, on_retry);
 	hfh.StoreClient(std::move(http_client));

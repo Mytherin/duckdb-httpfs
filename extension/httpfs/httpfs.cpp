@@ -124,7 +124,7 @@ void HTTPClientCache::StoreClient(unique_ptr<HTTPClient> client) {
 // Retry the request performed by fun using the exponential backoff strategy defined in params. Before retry, the
 // retry callback is called
 duckdb::unique_ptr<HTTPResponse>
-HTTPFileSystem::RunRequestWithRetry(const std::function<unique_ptr<HTTPResponse>(void)> &request, string &url,
+HTTPFSUtil::RunRequestWithRetry(const std::function<unique_ptr<HTTPResponse>(void)> &request, const string &url,
                                     string method, const HTTPParams &params,
                                     const std::function<void(void)> &retry_cb) {
 	idx_t tries = 0;
@@ -169,35 +169,73 @@ HTTPFileSystem::RunRequestWithRetry(const std::function<unique_ptr<HTTPResponse>
 	}
 }
 
+unique_ptr<HTTPResponse> HTTPClient::Request(BaseRequest &request) {
+	switch(request.type) {
+	case RequestType::GET_REQUEST:
+		return Get(request.Cast<GetRequestInfo>());
+	case RequestType::PUT_REQUEST:
+		return Put(request.Cast<PutRequestInfo>());
+	case RequestType::HEAD_REQUEST:
+		return Head(request.Cast<HeadRequestInfo>());
+	case RequestType::DELETE_REQUEST:
+		return Delete(request.Cast<DeleteRequestInfo>());
+	case RequestType::POST_REQUEST:
+		return Post(request.Cast<PostRequestInfo>());
+	default:
+		throw InternalException("Unsupported request type");
+	}
+}
+
+unique_ptr<HTTPResponse> HTTPFSUtil::Request(BaseRequest &request) {
+	unique_ptr<HTTPClient> client;
+	return Request(request, client);
+}
+
+string RequestTypeToString(RequestType type) {
+	switch(type) {
+	case RequestType::GET_REQUEST:
+		return "GET";
+	case RequestType::PUT_REQUEST:
+		return "PUT";
+	case RequestType::HEAD_REQUEST:
+		return "HEAD";
+	case RequestType::DELETE_REQUEST:
+		return "DELETE";
+	case RequestType::POST_REQUEST:
+		return "POST";
+	default:
+		throw InternalException("Unsupported request type");
+	}
+}
+
+unique_ptr<HTTPResponse> HTTPFSUtil::Request(BaseRequest &request, unique_ptr<HTTPClient> &client) {
+	if (!client) {
+		client = HTTPFSUtil::InitializeClient(request.params, request.proto_host_port);
+	}
+
+	std::function<unique_ptr<HTTPResponse>(void)> on_request([&]() {
+		return client->Request(request);
+	});
+	// Refresh the client on retries
+	std::function<void(void)> on_retry(
+	    [&]() { client = HTTPFSUtil::InitializeClient(request.params, request.proto_host_port); });
+
+	return RunRequestWithRetry(on_request, request.url, RequestTypeToString(request.type), request.params);
+}
+
 unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                         duckdb::unique_ptr<char[]> &buffer_out, idx_t &buffer_out_len,
                                                         char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	PostRequestInfo post_request(url, header_map, hfh.http_params, hfh.state.get(), const_data_ptr_cast(buffer_in), buffer_in_len);
-	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		auto client = HTTPFSUtil::InitializeClient(hfh.http_params, post_request.proto_host_port);
-
-		auto result = client->Post(post_request);
-
-		buffer_out = std::move(post_request.buffer_out);
-		buffer_out_len = post_request.buffer_out_len;
-		return result;
-	});
-	return RunRequestWithRetry(request, url, "POST", hfh.http_params);
+	return HTTPFSUtil::Request(post_request);
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                        char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
-
 	PutRequestInfo put_request(url, header_map, hfh.http_params, hfh.state.get(), (const_data_ptr_t) buffer_in, buffer_in_len, "application/octet-stream");
-	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		auto client = HTTPFSUtil::InitializeClient(hfh.http_params, put_request.proto_host_port);
-
-		return client->Put(put_request);
-	});
-
-	return RunRequestWithRetry(request, url, "PUT", hfh.http_params);
+	return HTTPFSUtil::Request(put_request);
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
@@ -205,32 +243,18 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 	auto http_client = hfh.GetClient();
 
 	HeadRequestInfo head_request(url, header_map, hfh.http_params, hfh.state.get());
-	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		return http_client->Head(head_request);
-	});
+	auto response = HTTPFSUtil::Request(head_request, http_client);
 
-	// Refresh the client on retries
-	std::function<void(void)> on_retry(
-	    [&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, head_request.proto_host_port); });
-
-	auto response = RunRequestWithRetry(request, url, "HEAD", hfh.http_params, on_retry);
 	hfh.StoreClient(std::move(http_client));
 	return response;
 }
+
 unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	auto http_client = hfh.GetClient();
 	DeleteRequestInfo delete_request(url, header_map, hfh.http_params, hfh.state.get());
+	auto response = HTTPFSUtil::Request(delete_request, http_client);
 
-	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		return http_client->Delete(delete_request);
-	});
-
-	// Refresh the client on retries
-	std::function<void(void)> on_retry(
-		[&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, delete_request.proto_host_port); });
-
-	auto response = RunRequestWithRetry(request, url, "DELETE", hfh.http_params, on_retry);
 	hfh.StoreClient(std::move(http_client));
 	return response;
 }
@@ -274,14 +298,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 			return true;
 		});
 
-	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		return http_client->Get(get_request);
-	});
+	auto response = HTTPFSUtil::Request(get_request, http_client);
 
-	std::function<void(void)> on_retry(
-	    [&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, get_request.proto_host_port); });
-
-	auto response = RunRequestWithRetry(request, url, "GET", hfh.http_params, on_retry);
 	hfh.StoreClient(std::move(http_client));
 	return response;
 }
@@ -336,14 +354,9 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 			}
 			return true;
 		});
-	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		return http_client->Get(get_request);
-	});
 
-	std::function<void(void)> on_retry(
-	    [&]() { http_client = HTTPFSUtil::InitializeClient(hfh.http_params, get_request.proto_host_port); });
+	auto response = HTTPFSUtil::Request(get_request, http_client);
 
-	auto response = RunRequestWithRetry(request, url, "GET Range", hfh.http_params, on_retry);
 	hfh.StoreClient(std::move(http_client));
 	return response;
 }

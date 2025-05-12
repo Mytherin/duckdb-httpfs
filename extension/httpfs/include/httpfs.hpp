@@ -156,11 +156,6 @@ protected:
 protected:
 	virtual duckdb::unique_ptr<HTTPFileHandle> CreateHandle(const OpenFileInfo &file, FileOpenFlags flags,
 	                                                        optional_ptr<FileOpener> opener);
-
-	static duckdb::unique_ptr<HTTPResponse>
-	RunRequestWithRetry(const std::function<unique_ptr<HTTPResponse>(void)> &request, string &url, string method,
-	                    const HTTPParams &params, const std::function<void(void)> &retry_cb = {});
-
 private:
 	// Global cache
 	mutex global_cache_lock;

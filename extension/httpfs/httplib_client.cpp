@@ -7,8 +7,8 @@
 
 namespace duckdb {
 
-BaseRequest::BaseRequest(const string &url, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
-		url(url), headers(headers), params(params), state(state) {
+BaseRequest::BaseRequest(RequestType type, const string &url, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state) :
+		type(type), url(url), headers(headers), params(params), state(state) {
 	HTTPFSUtil::DecomposeURL(url, path, proto_host_port);
 }
 

@@ -59,34 +59,56 @@ struct HTTPFSParams : public HTTPParams {
 	static HTTPFSParams ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info);
 };
 
-struct BaseRequest {
-	BaseRequest(const string &url, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state);
-	BaseRequest(const string &endpoint, const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
-		url(path), proto_host_port(endpoint), path(path), headers(headers), params(params), state(state) {}
+enum class RequestType : uint8_t {
+	GET_REQUEST,
+	PUT_REQUEST,
+	HEAD_REQUEST,
+	DELETE_REQUEST,
+	POST_REQUEST
+};
 
+string RequestTypeToString(RequestType type);
+
+struct BaseRequest {
+	BaseRequest(RequestType type, const string &url, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state);
+	BaseRequest(RequestType type, const string &endpoint_p, const string &path_p, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state) :
+		type(type), url(path), proto_host_port(endpoint_p), path(path_p), headers(headers), params(params), state(state) {}
+
+	RequestType type;
 	const string &url;
 	string path;
 	string proto_host_port;
 	const HTTPHeaders &headers;
-	const HTTPParams &params;
+	HTTPParams &params;
 	optional_ptr<HTTPState> state;
+
+	template <class TARGET>
+	TARGET &Cast() {
+		DynamicCastCheck<TARGET>(this);
+		return reinterpret_cast<TARGET &>(*this);
+	}
+	template <class TARGET>
+	const TARGET &Cast() const {
+		DynamicCastCheck<TARGET>(this);
+		return reinterpret_cast<const TARGET &>(*this);
+	}
 };
 
 struct GetRequestInfo : public BaseRequest{
-	GetRequestInfo(const string &url, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state,
+	GetRequestInfo(const string &url, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state,
 	std::function<bool(const HTTPResponse &response)> response_handler, std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler) :
-		BaseRequest(url, headers, params, state), content_handler(content_handler), response_handler(response_handler){}
-	GetRequestInfo(const string &endpoint, const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state,
+		BaseRequest(RequestType::GET_REQUEST, url, headers, params, state), content_handler(content_handler), response_handler(response_handler){}
+	GetRequestInfo(const string &endpoint, const string &path, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state,
 	std::function<bool(const HTTPResponse &response)> response_handler, std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler) :
-		BaseRequest(endpoint, path, headers, params, state), content_handler(content_handler), response_handler(response_handler){}
+		BaseRequest(RequestType::GET_REQUEST, endpoint, path, headers, params, state), content_handler(content_handler), response_handler(response_handler){}
 
 	std::function<bool(const_data_ptr_t data, idx_t data_length)> content_handler;
 	std::function<bool(const HTTPResponse &response)> response_handler;
 };
 
 struct PutRequestInfo : public BaseRequest {
-	PutRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state, const_data_ptr_t buffer_in, idx_t buffer_in_len, const string &content_type) :
-		BaseRequest(path, headers, params, state), buffer_in(buffer_in), buffer_in_len(buffer_in_len), content_type(content_type) {}
+	PutRequestInfo(const string &path, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state, const_data_ptr_t buffer_in, idx_t buffer_in_len, const string &content_type) :
+		BaseRequest(RequestType::PUT_REQUEST, path, headers, params, state), buffer_in(buffer_in), buffer_in_len(buffer_in_len), content_type(content_type) {}
 
 	const_data_ptr_t buffer_in;
 	idx_t buffer_in_len;
@@ -94,18 +116,18 @@ struct PutRequestInfo : public BaseRequest {
 };
 
 struct HeadRequestInfo : public BaseRequest {
-	HeadRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
-		BaseRequest(path, headers, params, state) {}
+	HeadRequestInfo(const string &path, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state) :
+		BaseRequest(RequestType::HEAD_REQUEST, path, headers, params, state) {}
 };
 
 struct DeleteRequestInfo : public BaseRequest {
-	DeleteRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state) :
-		BaseRequest(path, headers, params, state) {}
+	DeleteRequestInfo(const string &path, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state) :
+		BaseRequest(RequestType::DELETE_REQUEST, path, headers, params, state) {}
 };
 
 struct PostRequestInfo : public BaseRequest {
-	PostRequestInfo(const string &path, const HTTPHeaders &headers, const HTTPParams &params, optional_ptr<HTTPState> state, const_data_ptr_t buffer_in, idx_t buffer_in_len) :
-		BaseRequest(path, headers, params, state), buffer_in(buffer_in), buffer_in_len(buffer_in_len) {}
+	PostRequestInfo(const string &path, const HTTPHeaders &headers, HTTPParams &params, optional_ptr<HTTPState> state, const_data_ptr_t buffer_in, idx_t buffer_in_len) :
+		BaseRequest(RequestType::POST_REQUEST, path, headers, params, state), buffer_in(buffer_in), buffer_in_len(buffer_in_len) {}
 
 	const_data_ptr_t buffer_in;
 	idx_t buffer_in_len;
@@ -122,6 +144,8 @@ public:
 	virtual unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Delete(DeleteRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Post(PostRequestInfo &info) = 0;
+
+	unique_ptr<HTTPResponse> Request(BaseRequest &request);
 };
 
 class HTTPFSUtil {
@@ -133,7 +157,13 @@ public:
 
 	static void DecomposeURL(const string &url, string &path_out, string &proto_host_port_out);
 
-	static unique_ptr<HTTPResponse> Put(PutRequestInfo &info);
+	static unique_ptr<HTTPResponse> Request(BaseRequest &request);
+	static unique_ptr<HTTPResponse> Request(BaseRequest &request, unique_ptr<HTTPClient> &client);
+
+private:
+	static duckdb::unique_ptr<HTTPResponse>
+	RunRequestWithRetry(const std::function<unique_ptr<HTTPResponse>(void)> &request, const string &url, string method,
+						const HTTPParams &params, const std::function<void(void)> &retry_cb = {});
 };
 
 }

@@ -53,29 +53,22 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPParams &http_p
 	HTTPHeaders header_map;
 	string link_header_result;
 
-	auto client = HTTPFSUtil::InitializeClient(http_params, url.endpoint);
 	std::stringstream response;
-
-	std::function<unique_ptr<HTTPResponse>(void)> request([&]() {
-		GetRequestInfo get_request(url.endpoint, next_page_url, header_map, http_params, state,
-		    [&](const HTTPResponse &response) {
-			    if (static_cast<int>(response.status) >= 400) {
-				    throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", next_page_url, response.status);
-			    }
-			    if (response.HasHeader("Link")) {
-				    link_header_result = response.GetHeaderValue("Link");
-			    }
-			    return true;
-		    },
-		    [&](const_data_ptr_t data, idx_t data_length) {
-			    response << string(const_char_ptr_cast(data), data_length);
-			    return true;
-		    });
-		return client->Get(get_request);
-	});
-
-	auto res = RunRequestWithRetry(request, next_page_url, "GET", http_params, nullptr);
-
+	GetRequestInfo get_request(url.endpoint, next_page_url, header_map, http_params, state,
+		[&](const HTTPResponse &response) {
+			if (static_cast<int>(response.status) >= 400) {
+				throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", next_page_url, response.status);
+			}
+			if (response.HasHeader("Link")) {
+				link_header_result = response.GetHeaderValue("Link");
+			}
+			return true;
+		},
+		[&](const_data_ptr_t data, idx_t data_length) {
+			response << string(const_char_ptr_cast(data), data_length);
+			return true;
+		});
+	auto res = HTTPFSUtil::Request(get_request);
 	if (res->status != HTTPStatusCode::OK_200) {
 		throw IOException(res->GetError() + " error for HTTP GET to '" + next_page_url + "'");
 	}

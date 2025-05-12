@@ -39,7 +39,7 @@ unique_ptr<HTTPResponse> TransformResult(duckdb_httplib_openssl::Result &&res) {
 
 class HTTPLibClient : public HTTPClient {
 public:
-	HTTPLibClient(const HTTPParams &http_params, const char *proto_host_port, optional_ptr<HTTPLogger> logger) {
+	HTTPLibClient(const HTTPFSParams &http_params, const char *proto_host_port, optional_ptr<HTTPLogger> logger) {
 		client = make_uniq<duckdb_httplib_openssl::Client>(proto_host_port);
 		client->set_follow_location(true);
 		client->set_keep_alive(http_params.keep_alive);
@@ -147,14 +147,14 @@ public:
 };
 
 
-unique_ptr<HTTPClient> HTTPClient::InitializeClient(const HTTPParams &http_params,
+unique_ptr<HTTPClient> HTTPFSUtil::InitializeClient(const HTTPParams &http_params,
 										const char *proto_host_port,
 										optional_ptr<HTTPLogger> logger) {
-	auto client = make_uniq<HTTPLibClient>(http_params, proto_host_port, logger);
+	auto client = make_uniq<HTTPLibClient>(http_params.Cast<HTTPFSParams>(), proto_host_port, logger);
 	return client;
 }
 
-unordered_map<string, string> HTTPClient::ParseGetParameters(const string &text) {
+unordered_map<string, string> HTTPFSUtil::ParseGetParameters(const string &text) {
 	duckdb_httplib_openssl::Params query_params;
 	duckdb_httplib_openssl::detail::parse_query_text(text, query_params);
 

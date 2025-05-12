@@ -27,8 +27,20 @@ void HTTPFileSystem::InitializeHeaders(HTTPHeaders &header_map, const HTTPParams
 	}
 }
 
-HTTPParams HTTPParams::ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info) {
-	auto result = HTTPParams();
+void HTTPParams::Initialize(DatabaseInstance &db) {
+	if (!db.config.options.http_proxy.empty()) {
+		idx_t port;
+		string host;
+		HTTPUtil::ParseHTTPProxyHost(db.config.options.http_proxy, host, port);
+		http_proxy = host;
+		http_proxy_port = port;
+	}
+	http_proxy_username = db.config.options.http_proxy_username;
+	http_proxy_password = db.config.options.http_proxy_password;
+}
+
+HTTPFSParams HTTPFSParams::ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info) {
+	HTTPFSParams result;
 
 	// No point in continueing without an opener
 	if (!opener) {
@@ -188,7 +200,7 @@ unique_ptr<HTTPClient> HTTPFileSystem::GetClient(const HTTPParams &http_params,
 	if (hfh) {
 		logger = hfh->http_logger.get();
 	}
-	return HTTPClient::InitializeClient(http_params, proto_host_port, logger);
+	return HTTPFSUtil::InitializeClient(http_params, proto_host_port, logger);
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
@@ -388,7 +400,7 @@ void TimestampToTimeT(timestamp_t timestamp, time_t &result) {
 	result = mktime(&tm);
 }
 
-HTTPFileHandle::HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, const HTTPParams &http_params)
+HTTPFileHandle::HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, const HTTPFSParams &http_params)
     : FileHandle(fs, file.path, flags), http_params(http_params), flags(flags), length(0), buffer_available(0),
       buffer_idx(0), file_offset(0), buffer_start(0), buffer_end(0) {
 	// check if the handle has extended properties that can be set directly in the handle
@@ -421,7 +433,7 @@ unique_ptr<HTTPFileHandle> HTTPFileSystem::CreateHandle(const OpenFileInfo &file
 
 	FileOpenerInfo info;
 	info.file_path = file.path;
-	auto params = HTTPParams::ReadFrom(opener, info);
+	auto params = HTTPFSParams::ReadFrom(opener, info);
 
 	auto secret_manager = FileOpener::TryGetSecretManager(opener);
 	auto transaction = FileOpener::TryGetCatalogTransaction(opener);

@@ -42,7 +42,7 @@ public:
 	string GetTreeUrl(const ParsedHFUrl &url, idx_t limit);
 	string GetFileUrl(const ParsedHFUrl &url);
 
-	static void SetParams(HTTPParams &params, const string &path, optional_ptr<FileOpener> opener);
+	static void SetParams(HTTPFSParams &params, const string &path, optional_ptr<FileOpener> opener);
 
 protected:
 	duckdb::unique_ptr<HTTPFileHandle> CreateHandle(const OpenFileInfo &file, FileOpenFlags flags,
@@ -57,7 +57,7 @@ class HFFileHandle : public HTTPFileHandle {
 
 public:
 	HFFileHandle(FileSystem &fs, ParsedHFUrl hf_url, const OpenFileInfo &file, FileOpenFlags flags,
-	             const HTTPParams &http_params)
+	             const HTTPFSParams &http_params)
 	    : HTTPFileHandle(fs, file, flags, http_params), parsed_url(std::move(hf_url)) {
 	}
 	~HFFileHandle() override;

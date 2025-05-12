@@ -215,7 +215,7 @@ vector<OpenFileInfo> HuggingFaceFileSystem::Glob(const string &path, FileOpener 
 
 	FileOpenerInfo info;
 	info.file_path = path;
-	auto http_params = HTTPParams::ReadFrom(opener, info);
+	auto http_params = HTTPFSParams::ReadFrom(opener, info);
 	SetParams(http_params, path, opener);
 	auto http_state = HTTPState::TryGetState(opener).get();
 
@@ -289,13 +289,13 @@ unique_ptr<HTTPFileHandle> HuggingFaceFileSystem::CreateHandle(const OpenFileInf
 	FileOpenerInfo info;
 	info.file_path = file.path;
 
-	auto params = HTTPParams::ReadFrom(opener, info);
+	auto params = HTTPFSParams::ReadFrom(opener, info);
 	SetParams(params, file.path, opener);
 
 	return duckdb::make_uniq<HFFileHandle>(*this, std::move(parsed_url), file, flags, params);
 }
 
-void HuggingFaceFileSystem::SetParams(HTTPParams &params, const string &path, optional_ptr<FileOpener> opener) {
+void HuggingFaceFileSystem::SetParams(HTTPFSParams &params, const string &path, optional_ptr<FileOpener> opener) {
 	auto secret_manager = FileOpener::TryGetSecretManager(opener);
 	auto transaction = FileOpener::TryGetCatalogTransaction(opener);
 	if (secret_manager && transaction) {

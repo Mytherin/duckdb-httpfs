@@ -108,7 +108,7 @@ class S3FileHandle : public HTTPFileHandle {
 	friend class S3FileSystem;
 
 public:
-	S3FileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, const HTTPParams &http_params,
+	S3FileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, const HTTPFSParams &http_params,
 	             const S3AuthParams &auth_params_p, const S3ConfigParams &config_params_p)
 	    : HTTPFileHandle(fs, file, flags, http_params), auth_params(auth_params_p),
 	      config_params(config_params_p), uploads_in_progress(0), parts_uploaded(0), upload_finalized(false),
@@ -236,7 +236,7 @@ protected:
 
 // Helper class to do s3 ListObjectV2 api call https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
 struct AWSListObjectV2 {
-	static string Request(string &path, HTTPParams &http_params, S3AuthParams &s3_auth_params,
+	static string Request(string &path, HTTPFSParams &http_params, S3AuthParams &s3_auth_params,
 	                      string &continuation_token, optional_ptr<HTTPState> state, bool use_delimiter = false);
 	static void ParseFileList(string &aws_response, vector<OpenFileInfo> &result);
 	static vector<string> ParseCommonPrefix(string &aws_response);

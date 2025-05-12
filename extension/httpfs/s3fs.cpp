@@ -516,7 +516,7 @@ void S3FileSystem::ReadQueryParams(const string &url_query_param, S3AuthParams &
 		return;
 	}
 
-	auto query_params = HTTPClient::ParseGetParameters(url_query_param);
+	auto query_params = HTTPFSUtil::ParseGetParameters(url_query_param);
 
 	GetQueryParam("s3_region", params.region, query_params);
 	GetQueryParam("s3_access_key_id", params.access_key_id, query_params);
@@ -714,7 +714,7 @@ unique_ptr<HTTPFileHandle> S3FileSystem::CreateHandle(const OpenFileInfo &file, 
 	auto parsed_s3_url = S3UrlParse(file.path, auth_params);
 	ReadQueryParams(parsed_s3_url.query_param, auth_params);
 
-	return duckdb::make_uniq<S3FileHandle>(*this, file, flags, HTTPParams::ReadFrom(opener, info), auth_params,
+	return duckdb::make_uniq<S3FileHandle>(*this, file, flags, HTTPFSParams::ReadFrom(opener, info), auth_params,
 	                                       S3ConfigParams::ReadFrom(opener));
 }
 
@@ -894,7 +894,7 @@ vector<OpenFileInfo> S3FileSystem::Glob(const string &glob_pattern, FileOpener *
 	}
 
 	string shared_path = parsed_glob_url.substr(0, first_wildcard_pos);
-	auto http_params = HTTPParams::ReadFrom(opener, info);
+	auto http_params = HTTPFSParams::ReadFrom(opener, info);
 
 	ReadQueryParams(parsed_s3_url.query_param, s3_auth_params);
 
@@ -972,7 +972,7 @@ bool S3FileSystem::ListFiles(const string &directory, const std::function<void(c
 	return true;
 }
 
-string AWSListObjectV2::Request(string &path, HTTPParams &http_params, S3AuthParams &s3_auth_params,
+string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthParams &s3_auth_params,
                                 string &continuation_token, optional_ptr<HTTPState> state, bool use_delimiter) {
 	auto parsed_url = S3FileSystem::S3UrlParse(path, s3_auth_params);
 

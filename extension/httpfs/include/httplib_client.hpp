@@ -7,35 +7,54 @@ class FileOpener;
 struct FileOpenerInfo;
 
 struct HTTPParams {
+	virtual ~HTTPParams() = default;
 
 	static constexpr uint64_t DEFAULT_TIMEOUT_SECONDS = 30; // 30 sec
 	static constexpr uint64_t DEFAULT_RETRIES = 3;
 	static constexpr uint64_t DEFAULT_RETRY_WAIT_MS = 100;
 	static constexpr float DEFAULT_RETRY_BACKOFF = 4;
-	static constexpr bool DEFAULT_FORCE_DOWNLOAD = false;
-	static constexpr bool DEFAULT_KEEP_ALIVE = true;
-	static constexpr bool DEFAULT_ENABLE_SERVER_CERT_VERIFICATION = false;
-	static constexpr uint64_t DEFAULT_HF_MAX_PER_PAGE = 0;
 
 	uint64_t timeout = DEFAULT_TIMEOUT_SECONDS; // seconds component of a timeout
 	uint64_t timeout_usec = 0;                  // usec component of a timeout
 	uint64_t retries = DEFAULT_RETRIES;
 	uint64_t retry_wait_ms = DEFAULT_RETRY_WAIT_MS;
 	float retry_backoff = DEFAULT_RETRY_BACKOFF;
-	bool force_download = DEFAULT_FORCE_DOWNLOAD;
-	bool keep_alive = DEFAULT_KEEP_ALIVE;
-	bool enable_server_cert_verification = DEFAULT_ENABLE_SERVER_CERT_VERIFICATION;
-	idx_t hf_max_per_page = DEFAULT_HF_MAX_PER_PAGE;
 
-	string ca_cert_file;
 	string http_proxy;
 	idx_t http_proxy_port;
 	string http_proxy_username;
 	string http_proxy_password;
-	string bearer_token;
 	unordered_map<string, string> extra_headers;
 
-	static HTTPParams ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info);
+public:
+	void Initialize(DatabaseInstance &db);
+
+	template <class TARGET>
+	TARGET &Cast() {
+		DynamicCastCheck<TARGET>(this);
+		return reinterpret_cast<TARGET &>(*this);
+	}
+	template <class TARGET>
+	const TARGET &Cast() const {
+		DynamicCastCheck<TARGET>(this);
+		return reinterpret_cast<const TARGET &>(*this);
+	}
+};
+
+struct HTTPFSParams : public HTTPParams {
+	static constexpr bool DEFAULT_ENABLE_SERVER_CERT_VERIFICATION = false;
+	static constexpr uint64_t DEFAULT_HF_MAX_PER_PAGE = 0;
+	static constexpr bool DEFAULT_FORCE_DOWNLOAD = false;
+	static constexpr bool DEFAULT_KEEP_ALIVE = true;
+
+	bool force_download = DEFAULT_FORCE_DOWNLOAD;
+	bool keep_alive = DEFAULT_KEEP_ALIVE;
+	bool enable_server_cert_verification = DEFAULT_ENABLE_SERVER_CERT_VERIFICATION;
+	idx_t hf_max_per_page = DEFAULT_HF_MAX_PER_PAGE;
+	string ca_cert_file;
+	string bearer_token;
+
+	static HTTPFSParams ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info);
 };
 
 struct GetRequestInfo {
@@ -104,7 +123,10 @@ public:
 	virtual unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Delete(DeleteRequestInfo &info) = 0;
 	virtual unique_ptr<HTTPResponse> Post(PostRequestInfo &info) = 0;
+};
 
+class HTTPFSUtil {
+public:
 	static unique_ptr<HTTPClient> InitializeClient(const HTTPParams &http_params,
 											const char *proto_host_port,
 											optional_ptr<HTTPLogger> logger);

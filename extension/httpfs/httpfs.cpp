@@ -114,19 +114,22 @@ void HTTPClientCache::StoreClient(unique_ptr<HTTPClient> client) {
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
-                                                        duckdb::unique_ptr<char[]> &buffer_out, idx_t &buffer_out_len,
+                                                        string &buffer_out,
                                                         char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	auto &http_util = *hfh.http_params.http_util;
 	PostRequestInfo post_request(url, header_map, hfh.http_params, const_data_ptr_cast(buffer_in), buffer_in_len);
-	return http_util.Request(post_request);
+	auto result = http_util.Request(post_request);
+	buffer_out = std::move(post_request.buffer_out);
+	return result;
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                        char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	auto &http_util = *hfh.http_params.http_util;
-	PutRequestInfo put_request(url, header_map, hfh.http_params, (const_data_ptr_t) buffer_in, buffer_in_len, "application/octet-stream");
+	string content_type = "application/octet-stream";
+	PutRequestInfo put_request(url, header_map, hfh.http_params, (const_data_ptr_t) buffer_in, buffer_in_len, content_type);
 	return http_util.Request(put_request);
 }
 
@@ -545,6 +548,38 @@ bool HTTPFileSystem::TryParseLastModifiedTime(const string &timestamp, time_t &r
 	return true;
 }
 
+optional_idx TryParseContentRange(const HTTPHeaders &headers) {
+	if (!headers.HasHeader("Content-Range")) {
+		return optional_idx();
+	}
+	string content_range = headers.GetHeaderValue("Content-Range");
+	auto range_find = content_range.find("/");
+	if (range_find == std::string::npos || content_range.size() < range_find + 1) {
+		return optional_idx();
+	}
+	string range_length = content_range.substr(range_find + 1);
+	if (range_length == "*") {
+		return optional_idx();
+	}
+	try {
+		return std::stoull(range_length);
+	} catch(...) {
+		return optional_idx();
+	}
+}
+
+optional_idx TryParseContentLength(const HTTPHeaders &headers) {
+	if (!headers.HasHeader("Content-Length")) {
+		return optional_idx();
+	}
+	string content_length = headers.GetHeaderValue("Content-Length");
+	try {
+		return std::stoull(content_length);
+	} catch(...) {
+		return optional_idx();
+	}
+}
+
 void HTTPFileHandle::LoadFileInfo() {
 	if (initialized) {
 		// already initialized
@@ -552,8 +587,6 @@ void HTTPFileHandle::LoadFileInfo() {
 	}
 	auto &hfs = file_system.Cast<HTTPFileSystem>();
 	auto res = hfs.HeadRequest(*this, path, {});
-	string range_length;
-
 	if (res->status != HTTPStatusCode::OK_200) {
 		if (flags.OpenForWriting() && res->status == HTTPStatusCode::NotFound_404) {
 			if (!flags.CreateFileIfNotExists() && !flags.OverwriteExistingFile()) {
@@ -567,31 +600,30 @@ void HTTPFileHandle::LoadFileInfo() {
 			if (flags.OpenForReading() && res->status != HTTPStatusCode::NotFound_404) {
 				auto range_res = hfs.GetRangeRequest(*this, path, {}, 0, nullptr, 2);
 				if (range_res->status != HTTPStatusCode::PartialContent_206 && range_res->status != HTTPStatusCode::Accepted_202 && range_res->status != HTTPStatusCode::OK_200) {
-					throw IOException("Unable to connect to URL \"%s\": %d (%s).", path, static_cast<int>(res->status), res->GetError());
+					// It failed again
+					throw HTTPException(*range_res, "Unable to connect to URL \"%s\": %d (%s).", path, static_cast<int>(res->status), res->GetError());
 				}
-				string content_range;
-				if (range_res->headers.HasHeader("Content-Range")) {
-					content_range = range_res->headers.GetHeaderValue("Content-Range");
-				}
-				auto range_find = content_range.find("/");
-				if (!(range_find == std::string::npos || content_range.size() < range_find + 1)) {
-					range_length = content_range.substr(range_find + 1);
-					if (range_length != "*") {
-						res = std::move(range_res);
-					}
-				}
+				res = std::move(range_res);
 			} else {
-				// It failed again
 				throw HTTPException(*res, "Unable to connect to URL \"%s\": %d (%s).", res->url,
 				                    static_cast<int>(res->status), res->GetError());
 			}
 		}
 	}
+	length = 0;
+	optional_idx content_size;
+	content_size = TryParseContentRange(res->headers);
+	if (!content_size.IsValid()) {
+		content_size = TryParseContentLength(res->headers);
+	}
+	if (content_size.IsValid()) {
+		length = content_size.GetIndex();
+	}
 	if (res->headers.HasHeader("Last-Modified")) {
 		HTTPFileSystem::TryParseLastModifiedTime(res->headers.GetHeaderValue("Last-Modified"), last_modified);
 	}
-	if (res->headers.HasHeader("Etag")) {
-		etag = res->headers.GetHeaderValue("Etag");
+	if (res->headers.HasHeader("ETag")) {
+		etag = res->headers.GetHeaderValue("ETag");
 	}
 	initialized = true;
 }
@@ -605,47 +637,49 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 
 	auto current_cache = TryGetMetadataCache(opener, hfs);
 
-	bool should_write_cache = false;
-	if (http_params.force_download) {
-		FullDownload(hfs, should_write_cache);
-		return;
-	}
-
-	if (current_cache && !flags.OpenForWriting()) {
-		HTTPMetadataCacheEntry value;
-		bool found = current_cache->Find(path, value);
-
-		if (found) {
-			last_modified = value.last_modified;
-			length = value.length;
-			etag = value.etag;
-
-			if (flags.OpenForReading()) {
-				read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
-			}
-			return;
-		}
-
-		should_write_cache = true;
-	}
-
-	// If we're writing to a file, we might as well remove it from the cache
-	if (current_cache && flags.OpenForWriting()) {
-		current_cache->Erase(path);
-	}
-	LoadFileInfo();
-
-	// Initialize the read buffer now that we know the file exists
+    bool should_write_cache = false;
 	if (flags.OpenForReading()) {
-		read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
+        if (http_params.force_download) {
+            FullDownload(hfs, should_write_cache);
+            return;
+        }
+
+        if (current_cache) {
+            HTTPMetadataCacheEntry value;
+            bool found = current_cache->Find(path, value);
+
+            if (found) {
+                last_modified = value.last_modified;
+                length = value.length;
+                etag = value.etag;
+
+                if (flags.OpenForReading()) {
+                    read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
+                }
+                return;
+            }
+
+            should_write_cache = true;
+        }
+    }
+    LoadFileInfo();
+
+	if (flags.OpenForReading()) {
+        if (http_params.state && length == 0) {
+            FullDownload(hfs, should_write_cache);
+        }
+        if (should_write_cache) {
+            current_cache->Insert(path, {length, last_modified, etag});
+        }
+
+        // Initialize the read buffer now that we know the file exists
+        read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
 	}
 
-	if (http_params.state && length == 0) {
-		FullDownload(hfs, should_write_cache);
-	}
-	if (should_write_cache) {
-		current_cache->Insert(path, {length, last_modified, etag});
-	}
+    // If we're writing to a file, we might as well remove it from the cache
+    if (current_cache && flags.OpenForWriting()) {
+        current_cache->Erase(path);
+    }
 }
 
 unique_ptr<HTTPClient> HTTPFileHandle::GetClient() {

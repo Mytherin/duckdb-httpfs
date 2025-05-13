@@ -181,7 +181,7 @@ public:
 	                                                    idx_t file_offset, char *buffer_out,
 	                                                    idx_t buffer_out_len) override;
 	duckdb::unique_ptr<HTTPResponse> PostRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,
-	                                                duckdb::unique_ptr<char[]> &buffer_out, idx_t &buffer_out_len,
+	                                                string &buffer_out,
 	                                                char *buffer_in, idx_t buffer_in_len,
 	                                                string http_params = "") override;
 	duckdb::unique_ptr<HTTPResponse> PutRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,

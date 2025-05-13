@@ -283,19 +283,15 @@ string S3FileSystem::InitializeMultipartUpload(S3FileHandle &file_handle) {
 	auto &s3fs = (S3FileSystem &)file_handle.file_system;
 
 	// AWS response is around 300~ chars in docs so this should be enough to not need a resize
-	idx_t response_buffer_len = 1000;
-	auto response_buffer = duckdb::unique_ptr<char[]> {new char[response_buffer_len]};
-
+	string result;
 	string query_param = "uploads=";
-	auto res = s3fs.PostRequest(file_handle, file_handle.path, {}, response_buffer, response_buffer_len, nullptr, 0,
+	auto res = s3fs.PostRequest(file_handle, file_handle.path, {}, result, nullptr, 0,
 	                            query_param);
 
 	if (res->status != HTTPStatusCode::OK_200) {
 		throw HTTPException(*res, "Unable to connect to URL %s: %s (HTTP code %d)", res->url, res->GetError(),
 							static_cast<int>(res->status));
 	}
-
-	string result(response_buffer.get(), response_buffer_len);
 
 	auto open_tag_pos = result.find("<UploadId>", 0);
 	auto close_tag_pos = result.find("</UploadId>", open_tag_pos);
@@ -326,7 +322,7 @@ void S3FileSystem::UploadBuffer(S3FileHandle &file_handle, shared_ptr<S3WriteBuf
 	string query_param = "partNumber=" + to_string(write_buffer->part_no + 1) + "&" +
 	                     "uploadId=" + S3FileSystem::UrlEncode(file_handle.multipart_upload_id, true);
 	unique_ptr<HTTPResponse> res;
-	case_insensitive_map_t<string>::iterator etag_lookup;
+	string etag;
 
 	try {
 		res = s3fs.PutRequest(file_handle, file_handle.path, {}, (char *)write_buffer->Ptr(), write_buffer->idx,
@@ -340,7 +336,7 @@ void S3FileSystem::UploadBuffer(S3FileHandle &file_handle, shared_ptr<S3WriteBuf
 		if (!res->headers.HasHeader("ETag")) {
 			throw IOException("Unexpected response when uploading part to S3");
 		}
-
+		etag = res->headers.GetHeaderValue("ETag");
 	} catch (std::exception &ex) {
 		ErrorData error(ex);
 		if (error.Type() != ExceptionType::IO && error.Type() != ExceptionType::HTTP) {
@@ -360,7 +356,7 @@ void S3FileSystem::UploadBuffer(S3FileHandle &file_handle, shared_ptr<S3WriteBuf
 	// Insert etag
 	{
 		unique_lock<mutex> lck(file_handle.part_etags_lock);
-		file_handle.part_etags.insert(std::pair<uint16_t, string>(write_buffer->part_no, etag_lookup->second));
+		file_handle.part_etags.insert(std::pair<uint16_t, string>(write_buffer->part_no, etag));
 	}
 
 	file_handle.parts_uploaded++;
@@ -451,14 +447,11 @@ void S3FileSystem::FinalizeMultipartUpload(S3FileHandle &file_handle) {
 	string body = ss.str();
 
 	// Response is around ~400 in AWS docs so this should be enough to not need a resize
-	idx_t response_buffer_len = 1000;
-	auto response_buffer = duckdb::unique_ptr<char[]> {new char[response_buffer_len]};
+	string result;
 
 	string query_param = "uploadId=" + S3FileSystem::UrlEncode(file_handle.multipart_upload_id, true);
-	auto res = s3fs.PostRequest(file_handle, file_handle.path, {}, response_buffer, response_buffer_len,
+	auto res = s3fs.PostRequest(file_handle, file_handle.path, {}, result,
 	                            (char *)body.c_str(), body.length(), query_param);
-	string result(response_buffer.get(), response_buffer_len);
-
 	auto open_tag_pos = result.find("<CompleteMultipartUploadResult", 0);
 	if (open_tag_pos == string::npos) {
 		throw HTTPException(*res, "Unexpected response during S3 multipart upload finalization: %d\n\n%s", static_cast<int>(res->status),
@@ -643,7 +636,7 @@ string ParsedS3Url::GetHTTPUrl(S3AuthParams &auth_params, const string &http_que
 }
 
 unique_ptr<HTTPResponse> S3FileSystem::PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
-                                                      duckdb::unique_ptr<char[]> &buffer_out, idx_t &buffer_out_len,
+                                                      string &result,
                                                       char *buffer_in, idx_t buffer_in_len, string http_params) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(url, auth_params);
@@ -652,7 +645,7 @@ unique_ptr<HTTPResponse> S3FileSystem::PostRequest(FileHandle &handle, string ur
 	auto headers = create_s3_header(parsed_s3_url.path, http_params, parsed_s3_url.host, "s3", "POST", auth_params, "",
 	                                "", payload_hash, "application/octet-stream");
 
-	return HTTPFileSystem::PostRequest(handle, http_url, headers, buffer_out, buffer_out_len, buffer_in, buffer_in_len);
+	return HTTPFileSystem::PostRequest(handle, http_url, headers, result, buffer_in, buffer_in_len);
 }
 
 unique_ptr<HTTPResponse> S3FileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
@@ -999,7 +992,7 @@ string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthP
 	// Get requests use fresh connection
 	auto client = http_params.http_util->InitializeClient(http_params, parsed_url.http_proto + parsed_url.host);
 	std::stringstream response;
-	GetRequestInfo get_request(listobjectv2_url, header_map, http_params,
+	GetRequestInfo get_request(parsed_url.host, listobjectv2_url, header_map, http_params,
 	    [&](const HTTPResponse &response) {
 		    if (static_cast<int>(response.status) >= 400) {
 			    throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", listobjectv2_url, response.status);

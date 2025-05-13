@@ -69,7 +69,7 @@ public:
             state->total_bytes_sent += info.buffer_in_len;
         }
         auto headers = TransformHeaders(info.headers, info.params);
-        return TransformResult(client->Put(info.path.c_str(), headers, const_char_ptr_cast(info.buffer_in), info.buffer_in_len, info.content_type));
+        return TransformResult(client->Put(info.path, headers, const_char_ptr_cast(info.buffer_in), info.buffer_in_len, info.content_type));
 	}
 
 	unique_ptr<HTTPResponse> Head(HeadRequestInfo &info) override {
@@ -77,7 +77,7 @@ public:
             state->head_count++;
         }
         auto headers = TransformHeaders(info.headers, info.params);
-        return TransformResult(client->Head(info.path.c_str(), headers));
+        return TransformResult(client->Head(info.path, headers));
 	}
 
 	unique_ptr<HTTPResponse> Delete(DeleteRequestInfo &info) override {
@@ -85,7 +85,7 @@ public:
             state->delete_count++;
         }
         auto headers = TransformHeaders(info.headers, info.params);
-        return TransformResult(client->Delete(info.path.c_str(), headers));
+        return TransformResult(client->Delete(info.path, headers));
 	}
 
 	unique_ptr<HTTPResponse> Post(PostRequestInfo &info) override {
@@ -93,7 +93,6 @@ public:
             state->post_count++;
             state->total_bytes_sent += info.buffer_in_len;
         }
-		idx_t out_offset = 0;
         // We use a custom Request method here, because there is no Post call with a contentreceiver in httplib
         duckdb_httplib_openssl::Request req;
         req.method = "POST";
@@ -105,16 +104,7 @@ public:
             if (state) {
                 state->total_bytes_received += data_length;
             }
-            if (out_offset + data_length > info.buffer_out_len) {
-                // Buffer too small, increase its size by at least 2x to fit the new value
-                auto new_size = MaxValue<idx_t>(out_offset + data_length, info.buffer_out_len * 2);
-                auto tmp = duckdb::unique_ptr<char[]> {new char[new_size]};
-                memcpy(tmp.get(), info.buffer_out.get(), info.buffer_out_len);
-                info.buffer_out = std::move(tmp);
-                info.buffer_out_len = new_size;
-            }
-            memcpy(info.buffer_out.get() + out_offset, data, data_length);
-            out_offset += data_length;
+            info.buffer_out += string(data, data_length);
             return true;
         };
         req.body.assign(const_char_ptr_cast(info.buffer_in), info.buffer_in_len);

@@ -105,8 +105,7 @@ public:
 	virtual duckdb::unique_ptr<HTTPResponse> GetRequest(FileHandle &handle, string url, HTTPHeaders header_map);
 	// Post Request that can handle variable sized responses without a content-length header (needed for s3 multipart)
 	virtual duckdb::unique_ptr<HTTPResponse> PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
-	                                                        duckdb::unique_ptr<char[]> &buffer_out,
-	                                                        idx_t &buffer_out_len, char *buffer_in, idx_t buffer_in_len,
+	                                                        string &result, char *buffer_in, idx_t buffer_in_len,
 	                                                        string params = "");
 	virtual duckdb::unique_ptr<HTTPResponse> PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
 	                                                       char *buffer_in, idx_t buffer_in_len, string params = "");
